@@ -1,0 +1,134 @@
+{
+  "round": 15,
+  "phase": "FINISHED",
+  "rng": {
+    "a": -1966583250,
+    "b": 73850557,
+    "c": -2108119095,
+    "d": 1744971946
+  },
+  "outcome": {
+    "reason": "ROUND_LIMIT",
+    "winners": [
+      "p1"
+    ]
+  },
+  "players": [
+    {
+      "id": "p1",
+      "intel": 3,
+      "safehouse": "gesundbrunnen",
+      "eliminated": false,
+      "burnsInflicted": 0,
+      "dossiersExtracted": 0,
+      "passives": [
+        "ps_dead_drop",
+        "ps_ghost"
+      ],
+      "agents": [
+        {
+          "id": "p1:a1",
+          "node": "prenzlauer_berg",
+          "alive": true,
+          "d": 0
+        }
+      ]
+    },
+    {
+      "id": "p2",
+      "intel": 2,
+      "safehouse": null,
+      "eliminated": false,
+      "burnsInflicted": 0,
+      "dossiersExtracted": 0,
+      "passives": [
+        "ps_counter_surv",
+        "ps_k9"
+      ],
+      "agents": [
+        {
+          "id": "p2:a1",
+          "node": "friedrichstrasse",
+          "alive": true,
+          "d": 3
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    [
+      "alexanderplatz",
+      null,
+      0,
+      null
+    ],
+    [
+      "bernauer",
+      null,
+      1,
+      null
+    ],
+    [
+      "checkpoint_charlie",
+      null,
+      0,
+      15
+    ],
+    [
+      "friedrichstrasse",
+      null,
+      0,
+      null
+    ],
+    [
+      "gesundbrunnen",
+      null,
+      0,
+      null
+    ],
+    [
+      "glienicke_bridge",
+      null,
+      0,
+      null
+    ],
+    [
+      "karl_marx_allee",
+      null,
+      0,
+      null
+    ],
+    [
+      "kreuzberg",
+      null,
+      0,
+      17
+    ],
+    [
+      "kurfurstendamm",
+      null,
+      0,
+      15
+    ],
+    [
+      "prenzlauer_berg",
+      null,
+      0,
+      null
+    ],
+    [
+      "tempelhof",
+      "p1",
+      0,
+      null
+    ],
+    [
+      "tiergarten",
+      null,
+      1,
+      null
+    ]
+  ],
+  "traps": [],
+  "decoys": []
+}
