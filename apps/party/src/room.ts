@@ -3,7 +3,7 @@ import { clientMessageSchema } from '@berlin/shared';
 import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
 import { sendLobby, sendTo } from './broadcast.js';
-import { handleCreate, handleJoin } from './handlers.js';
+import { handleCreate, handleJoin, handleSetCodename, handleSetReady } from './handlers.js';
 import { newJoinCode } from './joinCode.js';
 import type { RoomState } from './state.js';
 
@@ -90,11 +90,25 @@ export default class MatchRoom implements Party.Server {
       return;
     }
 
-    // message.type === 'JOIN'
-    const result = handleJoin(this.state, message, sender.id, rng);
-    await this.persist(result.state);
-    sendTo(sender, result.toSender);
-    if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
+    if (message.type === 'JOIN') {
+      const result = handleJoin(this.state, message, sender.id, rng);
+      await this.persist(result.state);
+      sendTo(sender, result.toSender);
+      if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
+      return;
+    }
+
+    if (message.type === 'SET_READY') {
+      const next = handleSetReady(this.state, message.ready, sender.id);
+      await this.persist(next);
+      if (next) sendLobby(this.room, next);
+      return;
+    }
+
+    // message.type === 'SET_CODENAME'
+    const next = handleSetCodename(this.state, message.codename, sender.id);
+    await this.persist(next);
+    if (next) sendLobby(this.room, next);
   }
 
   onClose(): void {

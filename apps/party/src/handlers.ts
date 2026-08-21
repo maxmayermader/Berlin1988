@@ -1,7 +1,7 @@
 import type { ClientMessage, RngState, ServerMessage } from '@berlin/shared';
-import { bindConnection, mintToken } from './auth.js';
+import { bindConnection, mintToken, seatFor } from './auth.js';
 import { newJoinCode } from './joinCode.js';
-import { emptySeats, type RoomState } from './state.js';
+import { emptySeats, setCodename, setReady, type RoomState } from './state.js';
 
 const JOIN_CODE_SHAPE = /^[A-Z0-9]{6}$/;
 
@@ -137,4 +137,33 @@ export function handleJoin(
     toSender: { type: 'JOINED', playerId, token, code: state.code },
     broadcastRoomState: true,
   };
+}
+
+/**
+ * SET_READY / SET_CODENAME — both resolve the acting seat through
+ * `seatFor(state, connectionId)` and return early (state unchanged) if
+ * there is no binding for this connection. Neither reads a playerId from
+ * the message body (apps/party/src/CLAUDE.md rule 2). Room.ts hands the
+ * returned state to `sendLobby` — handlers never send directly.
+ */
+export function handleSetReady(
+  state: RoomState | null,
+  ready: boolean,
+  connectionId: string,
+): RoomState | null {
+  if (!state) return null;
+  const seat = seatFor(state, connectionId);
+  if (!seat || !seat.playerId) return state;
+  return setReady(state, seat.playerId, ready);
+}
+
+export function handleSetCodename(
+  state: RoomState | null,
+  codename: string,
+  connectionId: string,
+): RoomState | null {
+  if (!state) return null;
+  const seat = seatFor(state, connectionId);
+  if (!seat || !seat.playerId) return state;
+  return setCodename(state, seat.playerId, codename);
 }

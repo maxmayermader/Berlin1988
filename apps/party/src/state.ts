@@ -50,6 +50,38 @@ export function emptySeats(): RoomSeat[] {
   }));
 }
 
+/**
+ * Seat order is assigned once, at join time (index 0 = host, ascending for
+ * later joiners), and is NEVER re-sorted or re-derived from ready state.
+ * Every transition below maps over `seats` in array order and changes only
+ * the one matching seat's fields — reordering here would move a player's
+ * row on every client mid-lobby.
+ */
+
+/**
+ * Writes only the matching seat's `ready` field, so two players toggling in
+ * the same tick each land independently rather than one clobbering the
+ * other's read of the whole array. No-op once the room has left LOBBY.
+ */
+export function setReady(state: RoomState, playerId: string, ready: boolean): RoomState {
+  if (state.phase !== 'LOBBY') return state;
+  return {
+    ...state,
+    seats: state.seats.map((seat) => (seat.playerId === playerId ? { ...seat, ready } : seat)),
+  };
+}
+
+/** Rejected once the seat is ready — D-09's rename-before-ready rule. */
+export function setCodename(state: RoomState, playerId: string, codename: string): RoomState {
+  if (state.phase !== 'LOBBY') return state;
+  return {
+    ...state,
+    seats: state.seats.map((seat) =>
+      seat.playerId === playerId && !seat.ready ? { ...seat, codename } : seat,
+    ),
+  };
+}
+
 /** Strips server-only fields (token, connectionId) for the wire. */
 export function toSnapshot(state: RoomState): LobbySnapshot {
   return {

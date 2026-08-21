@@ -26,8 +26,21 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     codename: codenameSchema,
     token: z.string().optional(),
   }),
+  z.object({
+    type: z.literal('SET_READY'),
+    ready: z.boolean(),
+  }),
+  z.object({
+    type: z.literal('SET_CODENAME'),
+    codename: codenameSchema,
+  }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
+
+// SET_READY and SET_CODENAME deliberately carry no playerId/identity field.
+// The acting seat is always resolved from the connection binding
+// (apps/party/src/auth.ts seatFor) — adding an identity field here would
+// create the exact spoofing surface auth.ts exists to close.
 
 const sectorSchema = z.enum(['RED', 'BLUE', 'GOLD', 'GREEN']);
 const seatKindSchema = z.enum(['HUMAN', 'BOT', 'OPEN']);
