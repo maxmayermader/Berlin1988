@@ -3,7 +3,8 @@ import { clientMessageSchema } from '@berlin/shared';
 import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
 import { sendLobby, sendTo } from './broadcast.js';
-import { handleCreate, handleJoin, newJoinCode } from './handlers.js';
+import { handleCreate, handleJoin } from './handlers.js';
+import { newJoinCode } from './joinCode.js';
 import type { RoomState } from './state.js';
 
 const MINT_ROOM_ID = '_new';

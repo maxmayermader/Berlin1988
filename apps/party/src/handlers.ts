@@ -1,19 +1,7 @@
-import { nextInt } from '@berlin/engine';
 import type { ClientMessage, RngState, ServerMessage } from '@berlin/shared';
 import { bindConnection, mintToken } from './auth.js';
+import { newJoinCode } from './joinCode.js';
 import { emptySeats, type RoomState } from './state.js';
-
-/**
- * Temporary local stub, matching the eventual `newJoinCode(rng: RngState):
- * string` signature Task 2's apps/party/src/joinCode.ts exports. Task 2
- * replaces this with a real import and deletes this function.
- */
-export function newJoinCode(rng: RngState): string {
-  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  let out = '';
-  for (let i = 0; i < 6; i++) out += alphabet[nextInt(rng, alphabet.length)];
-  return out;
-}
 
 const JOIN_CODE_SHAPE = /^[A-Z0-9]{6}$/;
 
