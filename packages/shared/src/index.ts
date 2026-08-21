@@ -6,3 +6,4 @@ export * from './settings.js';
 export * from './orders.js';
 export * from './state.js';
 export * from './view.js';
+export * from './protocol.js';

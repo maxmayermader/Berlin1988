@@ -3,6 +3,8 @@
   "references": [
     { "path": "./packages/shared" },
     { "path": "./packages/engine" },
-    { "path": "./packages/ai" }
+    { "path": "./packages/ai" },
+    { "path": "./apps/party" },
+    { "path": "./apps/web" }
   ]
 }

@@ -1,0 +1,31 @@
+@import 'tailwindcss';
+
+/**
+ * Design tokens from .planning/phases/01-playable-skeleton/01-UI-SPEC.md.
+ * D-10: "clean but plain" — no theme, no illustration, two weights only.
+ */
+@theme {
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 64px;
+
+  --font-weight-body: 400;
+  --font-weight-heading: 600;
+
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-accent: #2563eb;
+  --color-destructive: #dc2626;
+}
+
+body {
+  background: var(--color-surface);
+  color: #0f172a;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
