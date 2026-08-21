@@ -8,8 +8,17 @@ import MatchRoom from '../src/room.js';
  * test — a fixture used by the *.test.ts files in this folder.
  */
 
+/**
+ * Storage stub extended (Plan 01-02) with the alarm trio so room.ts's
+ * countdown scheduling doesn't throw against this fake: setAlarm/deleteAlarm
+ * just record the target time, they never fire on their own. Tests that
+ * need to observe "the alarm fired" use `TestRoom.triggerAlarm()` below to
+ * invoke the room's onAlarm directly, rather than waiting out the real
+ * 10-second countdown duration.
+ */
 class FakeStorage {
   private readonly store = new Map<string, unknown>();
+  alarmAt: number | null = null;
   async get<T>(key: string): Promise<T | undefined> {
     return this.store.get(key) as T | undefined;
   }
@@ -18,6 +27,15 @@ class FakeStorage {
   }
   async delete(key: string): Promise<boolean> {
     return this.store.delete(key);
+  }
+  async setAlarm(time: number | Date): Promise<void> {
+    this.alarmAt = typeof time === 'number' ? time : time.getTime();
+  }
+  async deleteAlarm(): Promise<void> {
+    this.alarmAt = null;
+  }
+  async getAlarm(): Promise<number | null> {
+    return this.alarmAt;
   }
 }
 
@@ -33,6 +51,9 @@ export interface TestConnection {
 export interface TestRoom {
   readonly id: string;
   connect(codename?: string): TestConnection;
+  /** Invokes the room's onAlarm handler directly, bypassing any real timer —
+   *  the countdown duration is 10s and tests must not wait on it. */
+  triggerAlarm(): Promise<void>;
 }
 
 let seq = 0;
@@ -63,6 +84,9 @@ export function createTestRoom(id = 'test-room'): TestRoom {
 
   return {
     id,
+    async triggerAlarm(): Promise<void> {
+      await instance.onAlarm?.();
+    },
     connect(_codename?: string): TestConnection {
       const connId = `conn-${++seq}`;
       const received: ServerMessage[] = [];
