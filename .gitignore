@@ -10,3 +10,7 @@ coverage/
 .vscode/
 .env
 .env.local
+next-env.d.ts
+test-results/
+playwright-report/
+blob-report/

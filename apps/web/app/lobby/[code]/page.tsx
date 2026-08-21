@@ -3,14 +3,16 @@
 import type { LobbySnapshot } from '@berlin/shared';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
+import { loadIdentity } from '../../../lib/identity.js';
 import { useRoomSocket } from '../../../lib/socket.js';
 
 export default function LobbyPage() {
   const params = useParams<{ code: string }>();
   const code = (params.code ?? '').toUpperCase();
   const [snapshot, setSnapshot] = useState<LobbySnapshot | null>(null);
+  const [identity] = useState(() => loadIdentity());
 
-  useRoomSocket(code, 'Agent', (message) => {
+  useRoomSocket(code, identity.codename, (message) => {
     if (message.type === 'ROOM_STATE') setSnapshot(message.snapshot);
   });
 
@@ -19,7 +21,7 @@ export default function LobbyPage() {
       <h2 className="text-[20px] font-semibold leading-[1.2]">Seats</h2>
 
       {!snapshot ? (
-        <p className="text-sm">Connecting&hellip;</p>
+        <p className="text-sm">Connecting…</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {snapshot.seats.map((seat) => (

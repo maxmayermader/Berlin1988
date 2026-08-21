@@ -10,6 +10,15 @@ import type { RoomState } from './state.js';
 const MINT_ROOM_ID = '_new';
 const STATE_KEY = 'state';
 
+/** Permissive for local dev, where apps/web and apps/party run on different
+ *  ports/origins. This endpoint returns nothing sensitive — a fresh,
+ *  unclaimed join code — so a permissive origin costs nothing here. */
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 /**
  * The PartyKit Server for the match room. Per-connection logic lives only in
  * the message and close handlers — never the connect handler — because
@@ -36,13 +45,21 @@ export default class MatchRoom implements Party.Server {
    * connection can target `room: <that code>` directly, and CREATE's
    * onMessage handler below adopts that id as the match code with no
    * cross-room migration required.
+   *
+   * apps/web (port 3000) and apps/party (port 1999) are different origins in
+   * local dev, so this plain-HTTP endpoint needs explicit CORS headers —
+   * WebSocket connections aren't subject to the same-origin policy, so
+   * onMessage above needs none of this.
    */
   onRequest(req: Party.Request): Response | Promise<Response> {
+    if (req.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
     if (this.room.id !== MINT_ROOM_ID || req.method !== 'POST') {
-      return new Response('Not found', { status: 404 });
+      return new Response('Not found', { status: 404, headers: CORS_HEADERS });
     }
     const code = newJoinCode(freshRng());
-    return Response.json({ code });
+    return Response.json({ code }, { headers: CORS_HEADERS });
   }
 
   async onMessage(raw: string | ArrayBuffer | ArrayBufferView, sender: Party.Connection): Promise<void> {
