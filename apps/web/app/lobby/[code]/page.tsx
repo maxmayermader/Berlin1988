@@ -4,6 +4,8 @@ import { clientMessageSchema } from '@berlin/shared';
 import type { ClientMessage, LobbySnapshot, ServerMessage } from '@berlin/shared';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
+import { CodenameEditor } from '../../../components/lobby/CodenameEditor.js';
+import { ReadyCountdown } from '../../../components/lobby/ReadyCountdown.js';
 import { SeatList } from '../../../components/lobby/SeatList.js';
 import { Button } from '../../../components/ui/Button.js';
 import { loadIdentity } from '../../../lib/identity.js';
@@ -32,6 +34,10 @@ export default function LobbyPage() {
     send({ type: 'SET_READY', ready: !mySeat.ready });
   }
 
+  function renameCodename(codename: string) {
+    send({ type: 'SET_CODENAME', codename });
+  }
+
   return (
     <main className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-16">
       <h2 className="text-[20px] font-semibold leading-[1.2]">Seats</h2>
@@ -40,10 +46,16 @@ export default function LobbyPage() {
         <p className="text-sm">Connecting…</p>
       ) : (
         <>
-          <SeatList seats={snapshot.seats} onToggleReady={toggleReady} myPlayerId={playerId} />
           {mySeat && (
-            <Button onClick={toggleReady}>{mySeat.ready ? 'Ready ✓' : 'Ready Up'}</Button>
+            <CodenameEditor
+              value={mySeat.codename ?? ''}
+              ready={mySeat.ready}
+              onSubmit={renameCodename}
+            />
           )}
+          <SeatList snapshot={snapshot} onToggleReady={toggleReady} myPlayerId={playerId} />
+          {mySeat && <Button onClick={toggleReady}>{mySeat.ready ? 'Ready ✓' : 'Ready Up'}</Button>}
+          <ReadyCountdown snapshot={snapshot} />
         </>
       )}
     </main>

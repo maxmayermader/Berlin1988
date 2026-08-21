@@ -81,34 +81,43 @@ export default class MatchRoom implements Party.Server {
 
     const message = parsed.data;
     const rng = freshRng();
+    const now = Date.now();
 
     if (message.type === 'CREATE') {
       const result = handleCreate(this.room.id, message.codename, sender.id, rng);
       await this.persist(result.state);
+      if (result.state) await this.syncAlarm(result.state);
       sendTo(sender, result.toSender);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
       return;
     }
 
     if (message.type === 'JOIN') {
-      const result = handleJoin(this.state, message, sender.id, rng);
+      const result = handleJoin(this.state, message, sender.id, rng, now);
       await this.persist(result.state);
+      if (result.state) await this.syncAlarm(result.state);
       sendTo(sender, result.toSender);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
       return;
     }
 
     if (message.type === 'SET_READY') {
-      const next = handleSetReady(this.state, message.ready, sender.id);
+      const next = handleSetReady(this.state, message.ready, sender.id, now);
       await this.persist(next);
-      if (next) sendLobby(this.room, next);
+      if (next) {
+        await this.syncAlarm(next);
+        sendLobby(this.room, next);
+      }
       return;
     }
 
     // message.type === 'SET_CODENAME'
-    const next = handleSetCodename(this.state, message.codename, sender.id);
+    const next = handleSetCodename(this.state, message.codename, sender.id, now);
     await this.persist(next);
-    if (next) sendLobby(this.room, next);
+    if (next) {
+      await this.syncAlarm(next);
+      sendLobby(this.room, next);
+    }
   }
 
   onClose(): void {
@@ -120,6 +129,20 @@ export default class MatchRoom implements Party.Server {
   private async persist(state: RoomState | null): Promise<void> {
     this.state = state;
     if (state) await this.room.storage.put(STATE_KEY, state);
+  }
+
+  /**
+   * Mirrors RoomState.startsAt into a real Durable Object alarm. Called
+   * unconditionally is intentional and safe: setAlarm with the same target
+   * time is idempotent, and deleteAlarm on a room with no alarm scheduled
+   * is a no-op — so this never needs to diff against the previous value.
+   */
+  private async syncAlarm(state: RoomState): Promise<void> {
+    if (state.startsAt !== null) {
+      await this.room.storage.setAlarm(state.startsAt);
+    } else {
+      await this.room.storage.deleteAlarm();
+    }
   }
 }
 

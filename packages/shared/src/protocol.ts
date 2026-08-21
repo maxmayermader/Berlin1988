@@ -72,6 +72,10 @@ export const lobbySnapshotSchema = z.object({
   phase: roomPhaseSchema,
   hostPlayerId: z.string(),
   seats: z.array(lobbySeatSchema),
+  /** Absolute ms timestamp the match auto-starts at, or null when no
+   *  countdown is running. Server-authoritative — clients render from this
+   *  value alone and never recompute the >=50% threshold themselves. */
+  startsAt: z.number().nullable(),
 });
 export type LobbySnapshot = z.infer<typeof lobbySnapshotSchema>;
 

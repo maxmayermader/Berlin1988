@@ -1,7 +1,14 @@
 import type { ClientMessage, RngState, ServerMessage } from '@berlin/shared';
 import { bindConnection, mintToken, seatFor } from './auth.js';
 import { newJoinCode } from './joinCode.js';
-import { emptySeats, setCodename, setReady, type RoomState } from './state.js';
+import {
+  COUNTDOWN_DURATION_MS,
+  emptySeats,
+  recomputeCountdown,
+  setCodename,
+  setReady,
+  type RoomState,
+} from './state.js';
 
 const JOIN_CODE_SHAPE = /^[A-Z0-9]{6}$/;
 
@@ -58,6 +65,7 @@ export function handleCreate(
     phase: 'LOBBY',
     hostPlayerId,
     seats,
+    startsAt: null,
     gameState: null,
   };
 
@@ -80,6 +88,7 @@ export function handleJoin(
   message: Extract<ClientMessage, { type: 'JOIN' }>,
   connectionId: string,
   rng: RngState,
+  now: number,
 ): HandlerResult {
   if (!state || state.code !== message.code) {
     return {
@@ -96,7 +105,11 @@ export function handleJoin(
   if (message.token) {
     const existing = state.seats.find((seat) => seat.token === message.token);
     if (existing) {
-      const rebound = bindConnection(state, connectionId, existing.index);
+      const rebound = recomputeCountdown(
+        bindConnection(state, connectionId, existing.index),
+        now,
+        COUNTDOWN_DURATION_MS,
+      );
       return {
         state: rebound,
         toSender: {
@@ -130,7 +143,9 @@ export function handleJoin(
       ? { ...seat, playerId, codename: message.codename, kind: 'HUMAN' as const, token, connectionId }
       : seat,
   );
-  const nextState: RoomState = { ...state, seats };
+  // A new join recomputes the threshold — an extra filled seat can drop an
+  // already-counting-down ratio back below 50% (01-RESEARCH.md Pitfall 5).
+  const nextState: RoomState = recomputeCountdown({ ...state, seats }, now, COUNTDOWN_DURATION_MS);
 
   return {
     state: nextState,
@@ -143,27 +158,35 @@ export function handleJoin(
  * SET_READY / SET_CODENAME — both resolve the acting seat through
  * `seatFor(state, connectionId)` and return early (state unchanged) if
  * there is no binding for this connection. Neither reads a playerId from
- * the message body (apps/party/src/CLAUDE.md rule 2). Room.ts hands the
- * returned state to `sendLobby` — handlers never send directly.
+ * the message body (apps/party/src/CLAUDE.md rule 2). Both recompute the
+ * countdown threshold on the tail end — not only ready toggles fire this;
+ * a rename doesn't change the ratio, but it's cheap and correct to
+ * recompute uniformly rather than special-case which events might matter.
+ * Room.ts hands the returned state to `sendLobby` — handlers never send
+ * directly.
  */
 export function handleSetReady(
   state: RoomState | null,
   ready: boolean,
   connectionId: string,
+  now: number,
 ): RoomState | null {
   if (!state) return null;
   const seat = seatFor(state, connectionId);
   if (!seat || !seat.playerId) return state;
-  return setReady(state, seat.playerId, ready);
+  const withReady = setReady(state, seat.playerId, ready);
+  return recomputeCountdown(withReady, now, COUNTDOWN_DURATION_MS);
 }
 
 export function handleSetCodename(
   state: RoomState | null,
   codename: string,
   connectionId: string,
+  now: number,
 ): RoomState | null {
   if (!state) return null;
   const seat = seatFor(state, connectionId);
   if (!seat || !seat.playerId) return state;
-  return setCodename(state, seat.playerId, codename);
+  const withCodename = setCodename(state, seat.playerId, codename);
+  return recomputeCountdown(withCodename, now, COUNTDOWN_DURATION_MS);
 }
