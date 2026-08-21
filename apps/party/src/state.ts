@@ -1,5 +1,5 @@
 import { SECTORS } from '@berlin/shared';
-import type { GameState, LobbySeat, LobbySnapshot } from '@berlin/shared';
+import type { Difficulty, GameState, LobbySeat, LobbySnapshot, PersonalityId } from '@berlin/shared';
 
 /**
  * RoomState.phase is a room-local lifecycle concept
@@ -29,6 +29,11 @@ export interface RoomSeat extends LobbySeat {
   token: string | null;
   /** The live connection currently bound to this seat, if any. */
   connectionId: string | null;
+  /** Server-only, never in toSnapshot() — LOBBY-07's AI name/personality
+   *  readout is Phase 3 scope. Populated only for BOT seats, by
+   *  fillEmptySeatsWithBots at match start. */
+  personality: PersonalityId | null;
+  difficulty: Difficulty | null;
 }
 
 export interface RoomState {
@@ -55,6 +60,8 @@ export function emptySeats(): RoomSeat[] {
     ready: false,
     token: null,
     connectionId: null,
+    personality: null,
+    difficulty: null,
   }));
 }
 
