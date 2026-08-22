@@ -85,10 +85,7 @@ export function createTestRoom(id = 'test-room'): TestRoom {
   return {
     id,
     async triggerAlarm(): Promise<void> {
-      // Cast to the interface: onAlarm is optional on Party.Server and not
-      // yet declared on MatchRoom until Plan 01-02 Task 3 wires match
-      // start. Calling it here is a no-op until then.
-      await (instance as Party.Server).onAlarm?.();
+      await instance.onAlarm?.();
     },
     connect(_codename?: string): TestConnection {
       const connId = `conn-${++seq}`;

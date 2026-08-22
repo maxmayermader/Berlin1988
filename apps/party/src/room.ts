@@ -2,9 +2,10 @@ import { seedRng } from '@berlin/engine';
 import { clientMessageSchema } from '@berlin/shared';
 import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
-import { sendLobby, sendTo } from './broadcast.js';
+import { sendLobby, sendTo, sendViews } from './broadcast.js';
 import { handleCreate, handleJoin, handleSetCodename, handleSetReady } from './handlers.js';
 import { newJoinCode } from './joinCode.js';
+import { startMatch } from './settings.js';
 import type { RoomState } from './state.js';
 
 const MINT_ROOM_ID = '_new';
@@ -124,6 +125,23 @@ export default class MatchRoom implements Party.Server {
     // No reconnection handling in Phase 1 (D-11) — an accepted, documented
     // gap, not a bug. A dropped connection simply leaves its seat bound to a
     // now-dead connection id until the room is next touched.
+  }
+
+  /**
+   * The countdown alarm firing. Delegates the entire LOADOUT -> IN_GAME
+   * transition to apps/party/src/settings.ts's startMatch — the sole
+   * match-construction call site in the codebase. startMatch's own
+   * idempotence guard makes this safe to call even if the alarm somehow
+   * double-fires.
+   */
+  async onAlarm(): Promise<void> {
+    if (!this.state) return;
+    const started = startMatch(this.state, Date.now());
+    await this.persist(started);
+    if (started.phase === 'IN_GAME' && started.gameState) {
+      sendLobby(this.room, started);
+      sendViews(this.room, started, started.gameState);
+    }
   }
 
   private async persist(state: RoomState | null): Promise<void> {

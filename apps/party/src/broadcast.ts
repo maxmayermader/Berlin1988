@@ -1,6 +1,8 @@
-import { serverMessageSchema } from '@berlin/shared';
-import type { ServerMessage } from '@berlin/shared';
+import { projectView } from '@berlin/engine';
+import { playerId as toPlayerId, serverMessageSchema } from '@berlin/shared';
+import type { GameState, ServerMessage } from '@berlin/shared';
 import type * as Party from 'partykit/server';
+import { seatFor } from './auth.js';
 import { toSnapshot, type RoomState } from './state.js';
 
 /**
@@ -23,5 +25,25 @@ export function sendLobby(room: Party.Room, state: RoomState): void {
   const payload = JSON.stringify(parsed);
   for (const connection of room.getConnections()) {
     connection.send(payload);
+  }
+}
+
+/**
+ * The per-connection projectView() chokepoint (apps/party/src/CLAUDE.md
+ * rule 1) — the first moment authoritative state leaves the room. One
+ * projectView() call PER RECIPIENT, resolved from that recipient's own
+ * seat binding via seatFor. Unlike LobbySnapshot this content is not
+ * public-by-construction, so it may never travel by room-wide fan-out —
+ * botfill.test.ts asserts each connection's VIEW matches its own seat and
+ * that no two payloads are byte-identical.
+ */
+export function sendViews(room: Party.Room, state: RoomState, gameState: GameState): void {
+  for (const connection of room.getConnections()) {
+    const seat = seatFor(state, connection.id);
+    if (!seat || !seat.playerId) continue; // no bound seat — nothing to send
+    const view = projectView(gameState, toPlayerId(seat.playerId));
+    const message: ServerMessage = { type: 'VIEW', view };
+    const parsed = serverMessageSchema.parse(message);
+    connection.send(JSON.stringify(parsed));
   }
 }

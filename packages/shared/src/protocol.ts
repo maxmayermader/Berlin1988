@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { PlayerView } from './view.js';
 
 /**
  * The wire contract between apps/web and apps/party. Zod schemas are the
@@ -64,8 +65,8 @@ export type LobbySeat = z.infer<typeof lobbySeatSchema>;
 
 /**
  * The room's public snapshot. Lobby bookkeeping only — nothing derived from
- * GameState may ever be added here; that content goes through a
- * per-connection projectView() call instead (Plan 01-03).
+ * GameState may ever be added here; that content goes through the
+ * per-connection VIEW message instead (apps/party/src/broadcast.ts sendViews).
  */
 export const lobbySnapshotSchema = z.object({
   code: z.string(),
@@ -94,6 +95,13 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     playerId: z.string(),
     token: z.string(),
     code: z.string(),
+  }),
+  z.object({
+    type: z.literal('VIEW'),
+    // The runtime shape is already guaranteed by projectView() being the
+    // sole producer (packages/engine's fog boundary) — this schema's job
+    // here is union membership, not re-validation.
+    view: z.custom<PlayerView>(),
   }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

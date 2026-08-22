@@ -1,4 +1,4 @@
-import { seedRng } from '@berlin/engine';
+import { PHANTOM, seedRng } from '@berlin/engine';
 import { DIFFICULTY_IDS } from '@berlin/ai';
 import type { ServerMessage } from '@berlin/shared';
 import { describe, expect, it } from 'vitest';
@@ -116,7 +116,7 @@ describe('apps/party/src/settings.ts buildMatchConfig / startMatch', () => {
     expect(started.phase).toBe('IN_GAME');
     expect(started.gameState).not.toBeNull();
     for (const player of Object.values(started.gameState!.players)) {
-      expect(player.loadout).toEqual(started.gameState!.players[player.id]!.loadout);
+      expect(player.loadout).toEqual([...PHANTOM]);
     }
   });
 
@@ -171,10 +171,12 @@ describe('apps/party lobby -> match-start integration (Task 3)', () => {
     const room = createTestRoom();
     const host = room.connect('Vogel');
     await host.send({ type: 'CREATE', codename: 'Vogel' });
+    const hostPlayerId = last(host.received, 'JOINED')!.playerId;
     const code = last(host.received, 'JOINED')!.code;
 
     const guest = room.connect('Katja');
     await guest.send({ type: 'JOIN', code, codename: 'Katja' });
+    const guestPlayerId = last(guest.received, 'JOINED')!.playerId;
 
     await host.send({ type: 'SET_READY', ready: true });
     await guest.send({ type: 'SET_READY', ready: true });
@@ -185,6 +187,10 @@ describe('apps/party lobby -> match-start integration (Task 3)', () => {
     const guestView = last(guest.received, 'VIEW');
     expect(hostView).toBeDefined();
     expect(guestView).toBeDefined();
+    // Each connection's VIEW frame carries exactly its own seat's identity —
+    // not merely "different from the other one", but "matches my own seat".
+    expect(hostView!.view.self.id).toBe(hostPlayerId);
+    expect(guestView!.view.self.id).toBe(guestPlayerId);
     expect(hostView!.view.self.id).not.toBe(guestView!.view.self.id);
     expect(JSON.stringify(hostView)).not.toBe(JSON.stringify(guestView));
   });
