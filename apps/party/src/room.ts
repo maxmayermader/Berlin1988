@@ -2,7 +2,7 @@ import { seedRng } from '@berlin/engine';
 import { clientMessageSchema } from '@berlin/shared';
 import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
-import { sendCommitted, sendLobby, sendResolved, sendTo, sendViews } from './broadcast.js';
+import { sendClock, sendCommitted, sendLobby, sendResolved, sendTo, sendViews } from './broadcast.js';
 import {
   handleCreate,
   handleJoin,
@@ -14,6 +14,7 @@ import { newJoinCode } from './joinCode.js';
 import { closeRound, shouldCloseRound } from './round.js';
 import { startMatch } from './settings.js';
 import type { RoomState } from './state.js';
+import { onRoundAlarm, scheduleRoundDeadline } from './timers.js';
 
 const MINT_ROOM_ID = '_new';
 const STATE_KEY = 'state';
@@ -136,9 +137,13 @@ export default class MatchRoom implements Party.Server {
     if (result.acceptedFor && result.state?.gameState) {
       sendCommitted(this.room, result.state.gameState, result.acceptedFor);
       if (shouldCloseRound(result.state)) {
-        const closed = closeRound(result.state, 'ALL_COMMITTED');
+        const resolved = closeRound(result.state, 'ALL_COMMITTED');
+        const closed =
+          resolved.phase === 'IN_GAME' ? scheduleRoundDeadline(resolved, now) : resolved;
         await this.persist(closed);
+        await this.syncAlarm(closed);
         if (closed.gameState) sendResolved(this.room, closed, closed.gameState);
+        sendClock(this.room, closed);
       }
     }
   }
@@ -150,19 +155,56 @@ export default class MatchRoom implements Party.Server {
   }
 
   /**
-   * The countdown alarm firing. Delegates the entire LOADOUT -> IN_GAME
-   * transition to apps/party/src/settings.ts's startMatch — the sole
-   * match-construction call site in the codebase. startMatch's own
-   * idempotence guard makes this safe to call even if the alarm somehow
-   * double-fires.
+   * The room's single Durable Object alarm slot serves two different
+   * timers depending on phase — the lobby countdown (LOBBY/LOADOUT) and the
+   * round deadline (IN_GAME) — never both at once, so branching on phase is
+   * sufficient to route a firing correctly.
+   *
+   * LOBBY/LOADOUT: delegates the entire LOADOUT -> IN_GAME transition to
+   * apps/party/src/settings.ts's startMatch — the sole match-construction
+   * call site in the codebase — then schedules and syncs the first round's
+   * deadline so play begins with a live clock. startMatch's own idempotence
+   * guard makes this safe to call even if the alarm somehow double-fires.
+   *
+   * IN_GAME: delegates to timers.ts's onRoundAlarm, whose own guards make a
+   * stale or duplicate delivery a no-op and resolve a given round exactly
+   * once regardless of how many times this fires.
    */
   async onAlarm(): Promise<void> {
     if (!this.state) return;
-    const started = startMatch(this.state, Date.now());
-    await this.persist(started);
-    if (started.phase === 'IN_GAME' && started.gameState) {
-      sendLobby(this.room, started);
-      sendViews(this.room, started, started.gameState);
+    const now = Date.now();
+
+    if (this.state.phase === 'LOBBY' || this.state.phase === 'LOADOUT') {
+      const started = startMatch(this.state, now);
+      const startedGameState = started.gameState;
+      if (started.phase !== 'IN_GAME' || !startedGameState) {
+        await this.persist(started);
+        return;
+      }
+      const withDeadline = scheduleRoundDeadline(started, now);
+      await this.persist(withDeadline);
+      await this.syncAlarm(withDeadline);
+      sendLobby(this.room, withDeadline);
+      sendViews(this.room, withDeadline, startedGameState);
+      sendClock(this.room, withDeadline);
+      return;
+    }
+
+    if (this.state.phase === 'IN_GAME') {
+      const before = this.state;
+      const next = onRoundAlarm(before, now);
+      await this.persist(next);
+      // onRoundAlarm returns the SAME reference, unchanged, on every no-op
+      // path (a stale delivery before the deadline, or no deadline
+      // scheduled at all). next.gameState being non-null is true on both
+      // the resolved and no-op paths — it's the identity check, not that
+      // nullability, that tells us a round actually closed and is worth
+      // re-broadcasting.
+      if (next !== before) {
+        await this.syncAlarm(next);
+        if (next.gameState) sendResolved(this.room, next, next.gameState);
+        sendClock(this.room, next);
+      }
     }
   }
 
@@ -172,14 +214,17 @@ export default class MatchRoom implements Party.Server {
   }
 
   /**
-   * Mirrors RoomState.startsAt into a real Durable Object alarm. Called
-   * unconditionally is intentional and safe: setAlarm with the same target
-   * time is idempotent, and deleteAlarm on a room with no alarm scheduled
-   * is a no-op — so this never needs to diff against the previous value.
+   * Mirrors the room's active timer — RoomState.startsAt during
+   * LOBBY/LOADOUT, RoomState.deadlineAt during IN_GAME — into a real
+   * Durable Object alarm. Called unconditionally is intentional and safe:
+   * setAlarm with the same target time is idempotent, and deleteAlarm on a
+   * room with no alarm scheduled is a no-op — so this never needs to diff
+   * against the previous value.
    */
   private async syncAlarm(state: RoomState): Promise<void> {
-    if (state.startsAt !== null) {
-      await this.room.storage.setAlarm(state.startsAt);
+    const target = state.phase === 'IN_GAME' ? state.deadlineAt : state.startsAt;
+    if (target !== null) {
+      await this.room.storage.setAlarm(target);
     } else {
       await this.room.storage.deleteAlarm();
     }

@@ -93,3 +93,23 @@ export function sendResolved(room: Party.Room, state: RoomState, gameState: Game
     connection.send(JSON.stringify(parsed));
   }
 }
+
+/**
+ * CLOCK — the round deadline, room-wide. Safe to broadcast because
+ * `deadlineAt` is genuinely identical for every connection and carries
+ * nothing derived from a player's secrets; `paused`/`pausesRemaining` are
+ * schema literals this phase (no pause poll — SKELETON.md Out of Scope).
+ */
+export function sendClock(room: Party.Room, state: RoomState): void {
+  const message: ServerMessage = {
+    type: 'CLOCK',
+    deadlineAt: state.deadlineAt,
+    paused: false,
+    pausesRemaining: 0,
+  };
+  const parsed = serverMessageSchema.parse(message);
+  const payload = JSON.stringify(parsed);
+  for (const connection of room.getConnections()) {
+    connection.send(payload);
+  }
+}

@@ -141,6 +141,8 @@ export function useRoomSocket(
         useMatchStore
           .getState()
           .setOrderStatus(message.agentId, { state: 'rejected', message: message.message });
+      } else if (message.type === 'CLOCK') {
+        useMatchStore.getState().setClock(message.deadlineAt);
       }
 
       onMessage(message);

@@ -196,6 +196,17 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     // packages/engine/tests/fog-leak.test.ts protects (T-1-01).
     view: z.custom<PlayerView>(),
   }),
+  z.object({
+    type: z.literal('CLOCK'),
+    deadlineAt: z.number().nullable(),
+    // paused and pausesRemaining are literals, not booleans/numbers,
+    // because pausesPerPlayer is locked to 0 this phase and the pause poll
+    // is not built (SKELETON.md Out of Scope) — a later phase that adds
+    // pausing has to change this schema deliberately rather than by
+    // accident, mirroring ClockState.
+    paused: z.literal(false),
+    pausesRemaining: z.literal(0),
+  }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ServerErrorCode = z.infer<typeof errorCodeSchema>;

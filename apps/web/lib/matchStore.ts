@@ -24,6 +24,13 @@ export interface CommittedCount {
  * (apps/web/lib/CLAUDE.md rule 2). Session/UI-only, per apps/web/CLAUDE.md
  * rule 5.
  */
+/** The room's server-authoritative round clock — apps/web/CLAUDE.md rule 6
+ *  and apps/web/lib/CLAUDE.md rule 5: rendered from this absolute
+ *  timestamp, never from a local counter that drifts. */
+export interface ClockStore {
+  readonly deadlineAt: number | null;
+}
+
 interface MatchStore {
   readonly snapshot: LobbySnapshot | null;
   readonly view: PlayerView | null;
@@ -31,10 +38,12 @@ interface MatchStore {
   readonly committed: Record<string, CommittedCount>;
   /** Keyed by agentId. */
   readonly orderStatus: Record<string, OrderStatus>;
+  readonly clock: ClockStore;
   setSnapshot: (snapshot: LobbySnapshot) => void;
   setView: (view: PlayerView) => void;
   setCommitted: (playerId: string, committed: number, total: number) => void;
   setOrderStatus: (agentId: string, status: OrderStatus) => void;
+  setClock: (deadlineAt: number | null) => void;
   /** Called on ROUND_RESOLVED — commit counts are round-scoped and must not
    *  carry over once a fresh order phase opens. */
   resetCommitted: () => void;
@@ -45,11 +54,13 @@ export const useMatchStore = create<MatchStore>((set) => ({
   view: null,
   committed: {},
   orderStatus: {},
+  clock: { deadlineAt: null },
   setSnapshot: (snapshot) => set({ snapshot }),
-  setView: (view) => set({ view }),
+  setView: (view) => set({ view, clock: { deadlineAt: view.clock.deadlineAt } }),
   setCommitted: (playerId, committed, total) =>
     set((s) => ({ committed: { ...s.committed, [playerId]: { committed, total } } })),
   setOrderStatus: (agentId, status) =>
     set((s) => ({ orderStatus: { ...s.orderStatus, [agentId]: status } })),
+  setClock: (deadlineAt) => set({ clock: { deadlineAt } }),
   resetCommitted: () => set({ committed: {} }),
 }));
