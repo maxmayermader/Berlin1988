@@ -1,5 +1,12 @@
 import { SECTORS } from '@berlin/shared';
-import type { Difficulty, GameState, LobbySeat, LobbySnapshot, PersonalityId } from '@berlin/shared';
+import type {
+  AgentOrder,
+  Difficulty,
+  GameState,
+  LobbySeat,
+  LobbySnapshot,
+  PersonalityId,
+} from '@berlin/shared';
 
 /**
  * RoomState.phase is a room-local lifecycle concept
@@ -57,6 +64,21 @@ export interface RoomState {
    *  no-op, which is what stops the visible countdown from resetting or
    *  jumping backwards mid-round. */
   deadlineRound: number | null;
+  /** Bot orders already decided for the current round but not yet released
+   *  into pendingOrders — apps/party/src/bots.ts decideForBotSeats fills
+   *  this, releaseBotSubmissions drains it. Empty outside IN_GAME. */
+  botSubmissions: BotSubmission[];
+}
+
+/** One bot seat's already-decided order for the current round, queued for
+ *  release once its padded think-time elapses (T-1-14 — a bot seat is not
+ *  identifiable by response time). */
+export interface BotSubmission {
+  readonly playerId: string;
+  readonly order: AgentOrder;
+  /** Absolute ms timestamp — mirrors deadlineAt's convention, never a
+   *  remaining duration. */
+  readonly releaseAt: number;
 }
 
 /** Four open seats, one per SECTORS entry, in index order. */

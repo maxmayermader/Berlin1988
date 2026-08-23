@@ -1,7 +1,9 @@
 import { seedRng } from '@berlin/engine';
+import type { AIAgent } from '@berlin/ai';
 import { clientMessageSchema } from '@berlin/shared';
 import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
+import { decideForBotSeats, releaseBotSubmissions } from './bots.js';
 import { sendClock, sendCommitted, sendLobby, sendResolved, sendTo, sendViews } from './broadcast.js';
 import {
   handleCreate,
@@ -39,6 +41,18 @@ const CORS_HEADERS: Record<string, string> = {
  */
 export default class MatchRoom implements Party.Server {
   state: RoomState | null = null;
+
+  /**
+   * Bot AIAgent instances, keyed by playerId — cached here so belief state
+   * persists across rounds within a match (apps/party/src/CLAUDE.md rule 5
+   * pairs with @berlin/ai's own belief accumulation). Never persisted to
+   * storage: after a hibernation, a fresh MatchRoom instance starts with an
+   * empty cache and decideForBotSeats re-derives each agent from the same
+   * `${matchId}:${playerId}` seed on its next decision — deterministic, but
+   * belief resets to its prior (empty) state across that gap, an accepted
+   * consequence of not persisting AI internals this phase.
+   */
+  private readonly botAgents = new Map<string, AIAgent>();
 
   constructor(readonly room: Party.Room) {}
 
@@ -139,7 +153,9 @@ export default class MatchRoom implements Party.Server {
       if (shouldCloseRound(result.state)) {
         const resolved = closeRound(result.state, 'ALL_COMMITTED');
         const closed =
-          resolved.phase === 'IN_GAME' ? scheduleRoundDeadline(resolved, now) : resolved;
+          resolved.phase === 'IN_GAME'
+            ? this.decideBotsForRound(scheduleRoundDeadline(resolved, now), now)
+            : resolved;
         await this.persist(closed);
         await this.syncAlarm(closed);
         if (closed.gameState) sendResolved(this.room, closed, closed.gameState);
@@ -181,29 +197,60 @@ export default class MatchRoom implements Party.Server {
         await this.persist(started);
         return;
       }
-      const withDeadline = scheduleRoundDeadline(started, now);
-      await this.persist(withDeadline);
-      await this.syncAlarm(withDeadline);
-      sendLobby(this.room, withDeadline);
-      sendViews(this.room, withDeadline, startedGameState);
-      sendClock(this.room, withDeadline);
+      const withBots = this.decideBotsForRound(scheduleRoundDeadline(started, now), now);
+      await this.persist(withBots);
+      await this.syncAlarm(withBots);
+      sendLobby(this.room, withBots);
+      sendViews(this.room, withBots, startedGameState);
+      sendClock(this.room, withBots);
       return;
     }
 
     if (this.state.phase === 'IN_GAME') {
       const before = this.state;
-      const next = onRoundAlarm(before, now);
-      await this.persist(next);
-      // onRoundAlarm returns the SAME reference, unchanged, on every no-op
-      // path (a stale delivery before the deadline, or no deadline
-      // scheduled at all). next.gameState being non-null is true on both
-      // the resolved and no-op paths — it's the identity check, not that
-      // nullability, that tells us a round actually closed and is worth
-      // re-broadcasting.
-      if (next !== before) {
-        await this.syncAlarm(next);
-        if (next.gameState) sendResolved(this.room, next, next.gameState);
-        sendClock(this.room, next);
+
+      // Release any bot orders whose padded think-time has elapsed —
+      // through the identical submitOrder() path a human's SUBMIT_ORDER
+      // uses (apps/party/src/CLAUDE.md rule 3).
+      const { state: released, released: releasedSeats } = releaseBotSubmissions(before, now);
+      for (const playerId of releasedSeats) {
+        if (released.gameState) sendCommitted(this.room, released.gameState, playerId);
+      }
+
+      let working = released;
+      let closedThisTick = false;
+      if (shouldCloseRound(working)) {
+        working = closeRound(working, 'ALL_COMMITTED');
+        closedThisTick = true;
+        if (working.phase === 'IN_GAME') working = scheduleRoundDeadline(working, now);
+      } else {
+        // onRoundAlarm itself no-ops on a stale/duplicate delivery (now <
+        // deadlineAt, or no deadline scheduled), and otherwise closes +
+        // reschedules — the reference check below detects which happened.
+        const afterAlarm = onRoundAlarm(working, now);
+        if (afterAlarm !== working) {
+          working = afterAlarm;
+          closedThisTick = true;
+        }
+      }
+
+      if (closedThisTick) {
+        if (working.phase === 'IN_GAME') {
+          working = this.decideBotsForRound(working, now);
+        }
+        await this.persist(working);
+        await this.syncAlarm(working);
+        if (working.gameState) sendResolved(this.room, working, working.gameState);
+        sendClock(this.room, working);
+        return;
+      }
+
+      // Nothing closed this tick — persist any bot releases and reschedule
+      // for the next earliest pending event (a bot's releaseAt, or the
+      // round deadline).
+      if (working !== before) {
+        await this.persist(working);
+        await this.syncAlarm(working);
       }
     }
   }
@@ -214,20 +261,44 @@ export default class MatchRoom implements Party.Server {
   }
 
   /**
-   * Mirrors the room's active timer — RoomState.startsAt during
-   * LOBBY/LOADOUT, RoomState.deadlineAt during IN_GAME — into a real
-   * Durable Object alarm. Called unconditionally is intentional and safe:
-   * setAlarm with the same target time is idempotent, and deleteAlarm on a
-   * room with no alarm scheduled is a no-op — so this never needs to diff
-   * against the previous value.
+   * Decides this round's bot orders and stores them as pending
+   * BotSubmissions — deciding is immediate, releasing is scheduled
+   * (timers.ts botDelayMs). The RNG is seeded from `${matchId}:bots:${round}`,
+   * not freshRng()'s crypto source: apps/party/src/CLAUDE.md rule 9 bans
+   * ambient randomness here too, and a fixed per-round seed is what makes
+   * two rooms built from the same room id decide identical bot orders.
+   */
+  private decideBotsForRound(state: RoomState, now: number): RoomState {
+    if (!state.gameState) return state;
+    const rng = seedRng(`${state.matchId}:bots:${state.gameState.round}`);
+    const botSubmissions = decideForBotSeats(state, now, rng, this.botAgents);
+    return { ...state, botSubmissions };
+  }
+
+  /**
+   * Mirrors the room's active timer into a real Durable Object alarm:
+   * RoomState.startsAt during LOBBY/LOADOUT, or — during IN_GAME — the
+   * earlier of the round deadline and the next queued bot release, since
+   * the room's single alarm slot must fire for whichever comes first.
+   * Called unconditionally is intentional and safe: setAlarm with the same
+   * target time is idempotent, and deleteAlarm on a room with no alarm
+   * scheduled is a no-op — so this never needs to diff against the
+   * previous value.
    */
   private async syncAlarm(state: RoomState): Promise<void> {
-    const target = state.phase === 'IN_GAME' ? state.deadlineAt : state.startsAt;
+    const target = state.phase === 'IN_GAME' ? this.roundAlarmTarget(state) : state.startsAt;
     if (target !== null) {
       await this.room.storage.setAlarm(target);
     } else {
       await this.room.storage.deleteAlarm();
     }
+  }
+
+  private roundAlarmTarget(state: RoomState): number | null {
+    const targets: number[] = [];
+    if (state.deadlineAt !== null) targets.push(state.deadlineAt);
+    for (const submission of state.botSubmissions) targets.push(submission.releaseAt);
+    return targets.length > 0 ? Math.min(...targets) : null;
   }
 }
 

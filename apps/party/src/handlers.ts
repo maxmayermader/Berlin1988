@@ -77,6 +77,7 @@ export function handleCreate(
     gameState: null,
     deadlineAt: null,
     deadlineRound: null,
+    botSubmissions: [],
   };
 
   return {
