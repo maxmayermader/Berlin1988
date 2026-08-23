@@ -2,8 +2,8 @@
 
 import { clientMessageSchema } from '@berlin/shared';
 import type { ClientMessage, LobbySnapshot, ServerMessage } from '@berlin/shared';
-import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { CodenameEditor } from '../../../components/lobby/CodenameEditor.js';
 import { ReadyCountdown } from '../../../components/lobby/ReadyCountdown.js';
 import { SeatList } from '../../../components/lobby/SeatList.js';
@@ -14,6 +14,7 @@ import { useRoomSocket } from '../../../lib/socket.js';
 export default function LobbyPage() {
   const params = useParams<{ code: string }>();
   const code = (params.code ?? '').toUpperCase();
+  const router = useRouter();
   const [snapshot, setSnapshot] = useState<LobbySnapshot | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [identity] = useState(() => loadIdentity());
@@ -22,6 +23,15 @@ export default function LobbyPage() {
     if (message.type === 'ROOM_STATE') setSnapshot(message.snapshot);
     if (message.type === 'JOINED') setPlayerId(message.playerId);
   });
+
+  // The room's own snapshot is the sole trigger — never a locally guessed
+  // "the countdown display hit zero", which could fire before the room
+  // actually has a GameState and land the player on an empty board.
+  useEffect(() => {
+    if (snapshot?.phase === 'IN_GAME') {
+      router.push(`/match/${code}`);
+    }
+  }, [snapshot?.phase, code, router]);
 
   const mySeat = snapshot?.seats.find((seat) => seat.playerId === playerId) ?? null;
 
