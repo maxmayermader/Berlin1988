@@ -47,3 +47,49 @@ export function sendViews(room: Party.Room, state: RoomState, gameState: GameSta
     connection.send(JSON.stringify(parsed));
   }
 }
+
+/**
+ * OPPONENT_COMMITTED — room-wide fan-out of one seat's commit count. Safe
+ * to broadcast because the count is public-by-design (OpponentPublicInfo
+ * already carries it) and this function derives it from KEY PRESENCE in
+ * pendingOrders alone — the order object at that key is never read,
+ * indexed, spread, or serialised here (apps/party/src/CLAUDE.md rule 3;
+ * threat T-1-13). Content stays sealed; only the count crosses the wire.
+ */
+export function sendCommitted(room: Party.Room, gameState: GameState, playerId: string): void {
+  const p = gameState.players[playerId];
+  if (!p) return;
+  const committedAgentIds = new Set(Object.keys(gameState.pendingOrders));
+  const liveAgents = p.agents.filter((a) => a.alive);
+  const agentsCommitted = liveAgents.filter((a) => committedAgentIds.has(a.id as string)).length;
+
+  const message: ServerMessage = {
+    type: 'OPPONENT_COMMITTED',
+    playerId,
+    agentsCommitted,
+    agentsTotal: liveAgents.length,
+  };
+  const parsed = serverMessageSchema.parse(message);
+  const payload = JSON.stringify(parsed);
+  for (const connection of room.getConnections()) {
+    connection.send(payload);
+  }
+}
+
+/**
+ * ROUND_RESOLVED — one projectView() call PER RECIPIENT, exactly like
+ * sendViews above. resolveRound()'s raw ResolutionEvent[] log is not a
+ * parameter of this function and is never in scope inside it —
+ * PlayerView.lastRound is already fog-filtered by projectView, and that
+ * field alone is the frame's payload.
+ */
+export function sendResolved(room: Party.Room, state: RoomState, gameState: GameState): void {
+  for (const connection of room.getConnections()) {
+    const seat = seatFor(state, connection.id);
+    if (!seat || !seat.playerId) continue;
+    const view = projectView(gameState, toPlayerId(seat.playerId));
+    const message: ServerMessage = { type: 'ROUND_RESOLVED', view };
+    const parsed = serverMessageSchema.parse(message);
+    connection.send(JSON.stringify(parsed));
+  }
+}

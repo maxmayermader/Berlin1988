@@ -1,4 +1,12 @@
-import type { ClientMessage, RngState, ServerMessage } from '@berlin/shared';
+import { submitOrder } from '@berlin/engine';
+import {
+  agentId as toAgentId,
+  playerId as toPlayerId,
+  type AgentOrder,
+  type ClientMessage,
+  type RngState,
+  type ServerMessage,
+} from '@berlin/shared';
 import { bindConnection, mintToken, seatFor } from './auth.js';
 import { newJoinCode } from './joinCode.js';
 import {
@@ -189,4 +197,89 @@ export function handleSetCodename(
   if (!seat || !seat.playerId) return state;
   const withCodename = setCodename(state, seat.playerId, codename);
   return recomputeCountdown(withCodename, now, COUNTDOWN_DURATION_MS);
+}
+
+export interface SubmitOrderResult {
+  state: RoomState | null;
+  /** Null when there is no seat binding for this connection — mirrors
+   *  handleSetReady/handleSetCodename's silent no-op for an unbound
+   *  connection: nothing is sent back and state is untouched. */
+  toSender: ServerMessage | null;
+  /** The accepting player's id, present only when submitOrder() returned no
+   *  rejection — what room.ts uses to fan out OPPONENT_COMMITTED and check
+   *  shouldCloseRound. Null on every rejection path. */
+  acceptedFor: string | null;
+}
+
+/**
+ * SUBMIT_ORDER — re-validates every order against the room's own GameState
+ * via the engine's own submitOrder(), regardless of what the client
+ * previewed. Ownership is enforced twice on purpose: the acting PlayerId
+ * comes from seatFor(connectionId) (never from the message body, per
+ * apps/party/src/CLAUDE.md rule 2), and the engine independently answers
+ * NOT_YOUR_AGENT for an agent that isn't on that seat.
+ *
+ * Never answers before submitOrder() returns — an optimistic ack sent ahead
+ * of validation is exactly the "player believes an order landed when it
+ * didn't" bug 01-RESEARCH.md Pitfall 2/2b describes.
+ */
+export function handleSubmitOrder(
+  state: RoomState | null,
+  message: Extract<ClientMessage, { type: 'SUBMIT_ORDER' }>,
+  connectionId: string,
+): SubmitOrderResult {
+  if (!state) return { state: null, toSender: null, acceptedFor: null };
+
+  const seat = seatFor(state, connectionId);
+  if (!seat || !seat.playerId) return { state, toSender: null, acceptedFor: null };
+
+  if (state.phase !== 'IN_GAME' || !state.gameState || state.gameState.phase !== 'ORDERS') {
+    return {
+      state,
+      toSender: { type: 'ERROR', code: 'WRONG_PHASE', message: 'No order phase is open right now.' },
+      acceptedFor: null,
+    };
+  }
+
+  // A stale frame from a client that hasn't yet processed a resolution must
+  // not land in the new round.
+  if (message.round !== state.gameState.round) {
+    return {
+      state,
+      toSender: {
+        type: 'ERROR',
+        code: 'WRONG_PHASE',
+        message: `Round ${message.round} is stale; the current round is ${state.gameState.round}.`,
+      },
+      acceptedFor: null,
+    };
+  }
+
+  const order: AgentOrder = {
+    agentId: toAgentId(message.agentId),
+    actions: message.actions,
+    ...(message.buySilencers !== undefined ? { buySilencers: message.buySilencers } : {}),
+  };
+
+  const result = submitOrder(state.gameState, toPlayerId(seat.playerId), order);
+
+  if (result.rejection) {
+    return {
+      state,
+      toSender: {
+        type: 'ORDER_REJECTED',
+        round: state.gameState.round,
+        agentId: message.agentId,
+        code: result.rejection.code,
+        message: result.rejection.message,
+      },
+      acceptedFor: null,
+    };
+  }
+
+  return {
+    state: { ...state, gameState: result.state },
+    toSender: { type: 'ORDER_ACK', round: state.gameState.round, agentId: message.agentId },
+    acceptedFor: seat.playerId,
+  };
 }

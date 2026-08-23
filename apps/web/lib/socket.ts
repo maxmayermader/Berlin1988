@@ -1,9 +1,10 @@
 'use client';
 
 import { clientMessageSchema, serverMessageSchema } from '@berlin/shared';
-import type { ClientMessage, ServerMessage } from '@berlin/shared';
+import type { Action, ClientMessage, ServerMessage } from '@berlin/shared';
 import { PartySocket } from 'partysocket';
 import { usePartySocket } from 'partysocket/react';
+import { useMatchStore } from './matchStore.js';
 
 /**
  * The only network surface in apps/web (apps/web/lib/CLAUDE.md rule 1). Every
@@ -118,8 +119,57 @@ export function useRoomSocket(
         return;
       }
       if (!parsed.success) return;
-      if (parsed.data.type === 'JOINED') storeRoomToken(code, parsed.data.token);
-      onMessage(parsed.data);
+      const message = parsed.data;
+
+      if (message.type === 'JOINED') storeRoomToken(code, message.token);
+
+      // Match-loop frames write straight into matchStore — this is still
+      // the only place that touches the network (apps/web/lib/CLAUDE.md
+      // rule 1); everything downstream reads the store, never the socket.
+      if (message.type === 'VIEW') {
+        useMatchStore.getState().setView(message.view);
+      } else if (message.type === 'ROUND_RESOLVED') {
+        useMatchStore.getState().setView(message.view);
+        useMatchStore.getState().resetCommitted();
+      } else if (message.type === 'OPPONENT_COMMITTED') {
+        useMatchStore
+          .getState()
+          .setCommitted(message.playerId, message.agentsCommitted, message.agentsTotal);
+      } else if (message.type === 'ORDER_ACK') {
+        useMatchStore.getState().setOrderStatus(message.agentId, { state: 'accepted' });
+      } else if (message.type === 'ORDER_REJECTED') {
+        useMatchStore
+          .getState()
+          .setOrderStatus(message.agentId, { state: 'rejected', message: message.message });
+      }
+
+      onMessage(message);
     },
   });
+}
+
+/**
+ * Submits one agent's order for the current round. Validated against
+ * clientMessageSchema before sending — the same Zod schema the room
+ * re-validates against, so a malformed payload never reaches the wire.
+ * Optimistic-marks the agent 'pending' locally; the server's ORDER_ACK or
+ * ORDER_REJECTED reply is what actually reconciles the status (rule 4:
+ * optimistic preview is advisory, the server's answer wins).
+ */
+export function submitOrder(
+  socket: PartySocket,
+  round: number,
+  agentId: string,
+  actions: readonly Action[],
+  buySilencers?: number,
+): void {
+  const message: ClientMessage = {
+    type: 'SUBMIT_ORDER',
+    round,
+    agentId,
+    actions: [...actions],
+    ...(buySilencers !== undefined ? { buySilencers } : {}),
+  };
+  useMatchStore.getState().setOrderStatus(agentId, { state: 'pending' });
+  socket.send(JSON.stringify(clientMessageSchema.parse(message)));
 }

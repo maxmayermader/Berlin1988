@@ -1,6 +1,14 @@
 import type { ClientMessage, ServerMessage } from '@berlin/shared';
 import type * as Party from 'partykit/server';
+import { bindConnection } from '../src/auth.js';
 import MatchRoom from '../src/room.js';
+
+/** Test-only fake connection with no real send target — used by holdSeat()
+ *  below, which never reads the frames it receives. */
+interface FakeConnection {
+  readonly id: string;
+  send(payload: string): void;
+}
 
 /**
  * Simulated-connection harness for the room, mirroring
@@ -54,6 +62,17 @@ export interface TestRoom {
   /** Invokes the room's onAlarm handler directly, bypassing any real timer —
    *  the countdown duration is 10s and tests must not wait on it. */
   triggerAlarm(): Promise<void>;
+  /**
+   * Test-only: submits a HOLD order for every live agent of the seat at
+   * `seatIndex`, through the identical onMessage -> handleSubmitOrder path a
+   * human connection uses — via a fake connection bound directly to that
+   * seat (bots have no WebSocket connection in production either; Task 3's
+   * decideForBotSeats calls the same underlying submitOrder path this
+   * mimics). Exists so a round can close end-to-end in tests written before
+   * Task 3 wires real AI-decided bot submissions, without bypassing the
+   * room's own handler.
+   */
+  holdSeat(seatIndex: number): Promise<void>;
 }
 
 let seq = 0;
@@ -71,7 +90,7 @@ let seq = 0;
  * so there is no race to guard against skipping it.
  */
 export function createTestRoom(id = 'test-room'): TestRoom {
-  const connections = new Map<string, { send(payload: string): void }>();
+  const connections = new Map<string, FakeConnection>();
   const storage = new FakeStorage();
 
   const fakeRoom = {
@@ -86,6 +105,51 @@ export function createTestRoom(id = 'test-room'): TestRoom {
     id,
     async triggerAlarm(): Promise<void> {
       await instance.onAlarm?.();
+    },
+    /**
+     * Submits a HOLD order for every live agent of the seat at `seatIndex`,
+     * through the identical onMessage -> handleSubmitOrder path a human
+     * connection uses. Binds a fresh fake connection directly to the seat
+     * (bots have no WebSocket connection in production either — Task 3's
+     * decideForBotSeats calls the underlying submitOrder path this mimics,
+     * not this helper) via the same bindConnection() the JOIN handler uses,
+     * so a round can close end-to-end in tests written before Task 3 wires
+     * real AI-decided bot submissions, without bypassing the room's own
+     * handler.
+     */
+    async holdSeat(seatIndex: number): Promise<void> {
+      const before = instance.state;
+      const gameStateBefore = before?.gameState;
+      if (!before || !gameStateBefore) return;
+      const seat = before.seats[seatIndex];
+      if (!seat?.playerId) return;
+
+      const connId = `hold-${++seq}`;
+      const fakeConnection: FakeConnection = {
+        id: connId,
+        send() {
+          // holdSeat's caller never reads these frames.
+        },
+      };
+      connections.set(connId, fakeConnection);
+      instance.state = bindConnection(before, connId, seatIndex);
+
+      const player = gameStateBefore.players[seat.playerId];
+      const liveAgents = player?.agents.filter((a) => a.alive) ?? [];
+      for (const agent of liveAgents) {
+        const current = instance.state?.gameState;
+        if (!current) break;
+        const message: ClientMessage = {
+          type: 'SUBMIT_ORDER',
+          round: current.round,
+          agentId: agent.id,
+          actions: [{ type: 'HOLD' }],
+        };
+        await instance.onMessage?.(
+          JSON.stringify(message),
+          fakeConnection as unknown as Party.Connection,
+        );
+      }
     },
     connect(_codename?: string): TestConnection {
       const connId = `conn-${++seq}`;

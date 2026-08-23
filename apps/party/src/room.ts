@@ -2,9 +2,16 @@ import { seedRng } from '@berlin/engine';
 import { clientMessageSchema } from '@berlin/shared';
 import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
-import { sendLobby, sendTo, sendViews } from './broadcast.js';
-import { handleCreate, handleJoin, handleSetCodename, handleSetReady } from './handlers.js';
+import { sendCommitted, sendLobby, sendResolved, sendTo, sendViews } from './broadcast.js';
+import {
+  handleCreate,
+  handleJoin,
+  handleSetCodename,
+  handleSetReady,
+  handleSubmitOrder,
+} from './handlers.js';
 import { newJoinCode } from './joinCode.js';
+import { closeRound, shouldCloseRound } from './round.js';
 import { startMatch } from './settings.js';
 import type { RoomState } from './state.js';
 
@@ -112,12 +119,27 @@ export default class MatchRoom implements Party.Server {
       return;
     }
 
-    // message.type === 'SET_CODENAME'
-    const next = handleSetCodename(this.state, message.codename, sender.id, now);
-    await this.persist(next);
-    if (next) {
-      await this.syncAlarm(next);
-      sendLobby(this.room, next);
+    if (message.type === 'SET_CODENAME') {
+      const next = handleSetCodename(this.state, message.codename, sender.id, now);
+      await this.persist(next);
+      if (next) {
+        await this.syncAlarm(next);
+        sendLobby(this.room, next);
+      }
+      return;
+    }
+
+    // message.type === 'SUBMIT_ORDER'
+    const result = handleSubmitOrder(this.state, message, sender.id);
+    await this.persist(result.state);
+    if (result.toSender) sendTo(sender, result.toSender);
+    if (result.acceptedFor && result.state?.gameState) {
+      sendCommitted(this.room, result.state.gameState, result.acceptedFor);
+      if (shouldCloseRound(result.state)) {
+        const closed = closeRound(result.state, 'ALL_COMMITTED');
+        await this.persist(closed);
+        if (closed.gameState) sendResolved(this.room, closed, closed.gameState);
+      }
     }
   }
 
