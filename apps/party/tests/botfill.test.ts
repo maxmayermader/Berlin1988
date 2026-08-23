@@ -36,6 +36,7 @@ function fixtureRoom(humanCount: number, matchId = 'ABCDEF'): RoomState {
     gameState: null,
     deadlineAt: null,
     deadlineRound: null,
+    botSubmissions: [],
   };
 }
 

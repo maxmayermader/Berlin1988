@@ -26,6 +26,7 @@ function fixtureState(filledCount: number, readyCount: number): RoomState {
     gameState: null,
     deadlineAt: null,
     deadlineRound: null,
+    botSubmissions: [],
   };
 }
 

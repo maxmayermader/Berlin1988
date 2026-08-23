@@ -49,6 +49,7 @@ function fixtureRoomState(overrides: Partial<MatchSettings> = {}): RoomState {
     gameState,
     deadlineAt: null,
     deadlineRound: null,
+    botSubmissions: [],
   };
 }
 
