@@ -34,6 +34,8 @@ function fixtureRoom(humanCount: number, matchId = 'ABCDEF'): RoomState {
     seats,
     startsAt: null,
     gameState: null,
+    deadlineAt: null,
+    deadlineRound: null,
   };
 }
 

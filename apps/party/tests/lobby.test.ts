@@ -24,6 +24,8 @@ function fixtureState(filledCount: number, readyCount: number): RoomState {
     seats,
     startsAt: null,
     gameState: null,
+    deadlineAt: null,
+    deadlineRound: null,
   };
 }
 

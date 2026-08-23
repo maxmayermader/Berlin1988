@@ -47,6 +47,16 @@ export interface RoomState {
   startsAt: number | null;
   /** Filled from the LOADOUT -> IN_GAME transition. Stays null all of Phase 1 Plan 01-01. */
   gameState: GameState | null;
+  /** Absolute ms timestamp the current round's order phase closes at, or
+   *  null when no round clock is running (LOBBY/LOADOUT, or ENDED).
+   *  Server-authoritative — see apps/party/src/timers.ts scheduleRoundDeadline.
+   *  Never derived client-side; every client renders from this same number. */
+  deadlineAt: number | null;
+  /** The gameState.round this deadlineAt belongs to. The write-once guard:
+   *  a second scheduleRoundDeadline call for the same round number is a
+   *  no-op, which is what stops the visible countdown from resetting or
+   *  jumping backwards mid-round. */
+  deadlineRound: number | null;
 }
 
 /** Four open seats, one per SECTORS entry, in index order. */

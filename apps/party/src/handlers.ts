@@ -75,6 +75,8 @@ export function handleCreate(
     seats,
     startsAt: null,
     gameState: null,
+    deadlineAt: null,
+    deadlineRound: null,
   };
 
   return {
