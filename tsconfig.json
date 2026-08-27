@@ -5,6 +5,7 @@
     { "path": "./packages/engine" },
     { "path": "./packages/ai" },
     { "path": "./apps/party" },
+    { "path": "./apps/party/scripts" },
     { "path": "./apps/web" }
   ]
 }

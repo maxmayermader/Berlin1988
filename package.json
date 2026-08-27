@@ -9,7 +9,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "sim": "tsx packages/ai/sim/run.ts",
-    "dev": "pnpm --parallel --filter web --filter party dev"
+    "dev": "pnpm --parallel --filter web --filter party dev",
+    "measure:timing": "tsx apps/party/scripts/measure-4p-timing.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
