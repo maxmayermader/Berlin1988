@@ -64,6 +64,10 @@ export function projectView(state: GameState, viewer: PlayerId): PlayerView {
     decoys: state.decoys.filter((d) => d.ownerId === viewer).map((d) => ({ ...d })),
     burnsInflicted: me.burnsInflicted,
     dossiersExtracted: me.dossiersExtracted,
+    // Same call, same value opponents already see (SelfView.score's own
+    // doc comment) — the viewer's score can never drift from what everyone
+    // else is shown for them.
+    score: scoreOf(state, viewer),
     eliminated: me.eliminated,
     knownBlockades,
   };

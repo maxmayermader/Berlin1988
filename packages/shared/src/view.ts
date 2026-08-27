@@ -89,6 +89,19 @@ export interface SelfView {
   readonly decoys: readonly Decoy[];
   readonly burnsInflicted: number;
   readonly dossiersExtracted: number;
+  /**
+   * 01-06-PLAN.md's one deliberate engine-side change this phase.
+   * `OpponentPublicInfo.score` already exposes every opponent's score, so
+   * without this field a player is the only participant in the match who
+   * cannot see their own standing — and the result screen would have to
+   * recompute it client-side, which 01-RESEARCH.md's Don't Hand-Roll table
+   * forbids (a second scoring implementation can disagree with the engine
+   * about who won). Filled by projectView() from the identical scoreOf()
+   * call that fills OpponentPublicInfo.score, so the two can never drift.
+   * Nothing is added to OpponentPublicInfo — the fog boundary is unchanged
+   * in both directions (packages/engine/tests/score-symmetry.test.ts).
+   */
+  readonly score: number;
   readonly eliminated: boolean;
   /** Populated only for a holder of Kontrolle Schedule. */
   readonly knownBlockades: readonly BlockadeEvent[];

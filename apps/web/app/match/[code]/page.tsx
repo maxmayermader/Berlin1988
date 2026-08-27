@@ -8,6 +8,7 @@ import { LockedInRow } from '../../../components/hud/LockedInRow.js';
 import { RoundClock } from '../../../components/hud/RoundClock.js';
 import { SubmittedCount } from '../../../components/hud/SubmittedCount.js';
 import { OrderComposer } from '../../../components/orders/OrderComposer.js';
+import { ResultScreen } from '../../../components/result/ResultScreen.js';
 import { StepThrough } from '../../../components/resolution/StepThrough.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { useMatchStore } from '../../../lib/matchStore.js';
@@ -125,6 +126,18 @@ export default function MatchPage() {
     );
   }
 
+  // The terminal sub-state: reaching it is automatic — once view.outcome is
+  // non-null the composer and the step-through are gone, replaced entirely
+  // by the result screen (this plan's <behavior>). No victory, score, or
+  // tie-break logic is computed here; ResultScreen reads only view.outcome.
+  if (view.outcome !== null) {
+    return (
+      <main className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-8">
+        <ResultScreen view={view} />
+      </main>
+    );
+  }
+
   // The round the step-through is replaying — read from the log's own
   // ROUND_START event rather than `view.round`, because resolveRound's
   // upkeep already advances `view.round` to the *next* round by the time
@@ -153,7 +166,9 @@ export default function MatchPage() {
             key={resolvedRound}
             log={view.lastRound}
             round={resolvedRound}
-            isFinal={view.outcome !== null}
+            // Always false here — the outcome !== null case already
+            // returned the ResultScreen above, before this branch renders.
+            isFinal={false}
           />
         ) : (
           <div className="flex flex-col gap-4">
