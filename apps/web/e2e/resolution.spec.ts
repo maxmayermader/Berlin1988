@@ -110,4 +110,61 @@ test.describe('Resolution — HUD and step-through', () => {
 
     await expect(page.getByRole('button', { name: /^Continue to Round \d+$/ })).toBeVisible();
   });
+
+  test('a second context sees the count rise by exactly one when the first submits, and renders four locked-in slots', async ({
+    browser,
+  }) => {
+    test.setTimeout(60_000);
+
+    const contextA = await browser.newContext();
+    const pageA = await contextA.newPage();
+    await pageA.goto('/');
+    await pageA.getByRole('button', { name: 'Create Game' }).click();
+    await pageA.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
+    const code = pageA.url().split('/lobby/')[1] ?? '';
+
+    const contextB = await browser.newContext();
+    const pageB = await contextB.newPage();
+    await pageB.goto('/');
+    await pageB.getByPlaceholder('Enter join code').fill(code);
+    await pageB.getByRole('button', { name: 'Join Game' }).click();
+    await pageB.waitForURL(`/lobby/${code}`);
+
+    // Both filled seats ready up — hits the room's >=50%-of-filled threshold
+    // (apps/party/src/state.ts) — the two remaining open seats then auto-fill
+    // with bots and the match starts, four seats total.
+    await pageA.getByRole('button', { name: 'Ready Up' }).click();
+    await pageB.getByRole('button', { name: 'Ready Up' }).click();
+    await pageA.waitForURL(/\/match\/[A-Z0-9]{6}$/, { timeout: 30_000 });
+    await pageB.waitForURL(/\/match\/[A-Z0-9]{6}$/, { timeout: 30_000 });
+
+    // Four locked-in slots, whatever the human/bot split — MATCH-04's fixed
+    // four-slot layout, never a reflow as seats fill.
+    const slotsB = pageB.locator('[role="listitem"]');
+    await expect(slotsB).toHaveCount(4);
+
+    const countB = pageB.getByText(/^\d+ of \d+ submitted$/);
+    const beforeText = await countB.textContent();
+    const before = Number(beforeText!.split(' of ')[0]);
+
+    // A submits — B never presses Submit, so B's own locked-in badge must
+    // not appear, and B's count must rise by exactly one once the server
+    // acknowledges A's order (T-1-25: the count never rises on a local
+    // click, only on a server frame).
+    await pageA.getByRole('button', { name: 'Hold' }).click();
+    await pageA.getByRole('button', { name: 'Hold' }).click();
+    await pageA.getByRole('button', { name: 'Submit Orders' }).click();
+    await expect(pageA.getByText('Order locked in.')).toBeVisible({ timeout: 15_000 });
+
+    await expect(countB).toHaveText(new RegExp(`^${before + 1} of \\d+ submitted$`), {
+      timeout: 15_000,
+    });
+
+    // B has not submitted — B's own Submit button is still enabled/present,
+    // proving B's composer never optimistically marked itself locked in.
+    await expect(pageB.getByRole('button', { name: 'Submit Orders' })).toBeVisible();
+
+    await contextA.close();
+    await contextB.close();
+  });
 });

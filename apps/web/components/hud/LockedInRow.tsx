@@ -1,6 +1,7 @@
 'use client';
 
 import type { PlayerView } from '@berlin/shared';
+import { truncateCodename } from '../../lib/format.js';
 import { useMatchStore } from '../../lib/matchStore.js';
 
 export interface LockedInRowProps {
@@ -48,7 +49,7 @@ export function LockedInRow({ view }: LockedInRowProps) {
             role="listitem"
             className="flex h-8 min-w-20 items-center justify-center gap-1 rounded border border-[#e2e8f0] px-2 text-xs"
           >
-            <span className="truncate">{seat.name}</span>
+            <span className="truncate">{truncateCodename(seat.name)}</span>
             {seat.kind === 'BOT' && (
               <span className="rounded border border-[#e2e8f0] px-1 text-[10px] font-semibold uppercase text-[#64748b]">
                 AI
