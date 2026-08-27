@@ -84,6 +84,14 @@ export interface TestRoom {
    * rather than from a hardcoded fixture. Returns null before CREATE.
    */
   roomState(): RoomState | null;
+  /**
+   * Whether the fake Durable Object storage currently has a pending alarm —
+   * added for 01-06's "the room stops scheduling round alarms once the
+   * match has ended" truth. Reads the same FakeStorage.getAlarm() room.ts
+   * itself calls indirectly via syncAlarm(), so this observes exactly what
+   * a real Durable Object's own getAlarm() would report.
+   */
+  alarmScheduled(): Promise<boolean>;
 }
 
 let seq = 0;
@@ -116,6 +124,9 @@ export function createTestRoom(id = 'test-room'): TestRoom {
     id,
     roomState(): RoomState | null {
       return instance.state;
+    },
+    async alarmScheduled(): Promise<boolean> {
+      return (await storage.getAlarm()) !== null;
     },
     async triggerAlarm(): Promise<void> {
       await instance.onAlarm?.();
