@@ -4,7 +4,11 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { Action, AgentId, NodeId, ServerMessage } from '@berlin/shared';
 import { Board } from '../../../components/board/Board.js';
+import { LockedInRow } from '../../../components/hud/LockedInRow.js';
+import { RoundClock } from '../../../components/hud/RoundClock.js';
+import { SubmittedCount } from '../../../components/hud/SubmittedCount.js';
 import { OrderComposer } from '../../../components/orders/OrderComposer.js';
+import { StepThrough } from '../../../components/resolution/StepThrough.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { useMatchStore } from '../../../lib/matchStore.js';
 import {
@@ -43,6 +47,9 @@ export default function MatchPage() {
   const setDraft = useUiStore((s) => s.setDraft);
   const connectionStatus = useUiStore((s) => s.connectionStatus);
   const setConnectionStatus = useUiStore((s) => s.setConnectionStatus);
+  const matchSubState = useUiStore((s) => s.matchSubState);
+
+  const clockDeadline = useMatchStore((s) => s.clock.deadlineAt);
 
   const socket = useRoomSocket(code, identity.codename, (_message: ServerMessage) => {
     // VIEW / ROUND_RESOLVED / OPPONENT_COMMITTED / ORDER_ACK / ORDER_REJECTED /
@@ -118,6 +125,13 @@ export default function MatchPage() {
     );
   }
 
+  // The round the step-through is replaying — read from the log's own
+  // ROUND_START event rather than `view.round`, because resolveRound's
+  // upkeep already advances `view.round` to the *next* round by the time
+  // this client sees it (packages/engine/src/resolution/index.ts).
+  const firstEvent = view.lastRound[0];
+  const resolvedRound = firstEvent?.type === 'ROUND_START' ? firstEvent.round : view.round;
+
   return (
     <main className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8 md:flex-row">
       <div className="md:w-3/5">
@@ -134,16 +148,32 @@ export default function MatchPage() {
         />
       </div>
       <div className="md:w-2/5">
-        <OrderComposer
-          view={view}
-          selectedAgentId={activeAgentId}
-          onSelectAgent={selectAgent}
-          draft={draft}
-          orderStatus={activeAgentId ? orderStatus[activeAgentId as string] : undefined}
-          onAssign={handleAssign}
-          onClearSlot={handleClearSlot}
-          onSubmit={handleSubmit}
-        />
+        {matchSubState === 'RESOLUTION' ? (
+          <StepThrough
+            key={resolvedRound}
+            log={view.lastRound}
+            round={resolvedRound}
+            isFinal={view.outcome !== null}
+          />
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-4">
+              <SubmittedCount view={view} />
+              <RoundClock deadlineAt={clockDeadline} />
+            </div>
+            <LockedInRow view={view} />
+            <OrderComposer
+              view={view}
+              selectedAgentId={activeAgentId}
+              onSelectAgent={selectAgent}
+              draft={draft}
+              orderStatus={activeAgentId ? orderStatus[activeAgentId as string] : undefined}
+              onAssign={handleAssign}
+              onClearSlot={handleClearSlot}
+              onSubmit={handleSubmit}
+            />
+          </div>
+        )}
       </div>
     </main>
   );

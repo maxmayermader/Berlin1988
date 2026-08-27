@@ -5,6 +5,7 @@ import type { Action, ClientMessage, ServerMessage } from '@berlin/shared';
 import { PartySocket } from 'partysocket';
 import { usePartySocket } from 'partysocket/react';
 import { useMatchStore } from './matchStore.js';
+import { useUiStore } from './uiStore.js';
 
 /**
  * The only network surface in apps/web (apps/web/lib/CLAUDE.md rule 1). Every
@@ -131,6 +132,10 @@ export function useRoomSocket(
       } else if (message.type === 'ROUND_RESOLVED') {
         useMatchStore.getState().setView(message.view);
         useMatchStore.getState().resetCommitted();
+        // Opens the step-through report on the round that just resolved —
+        // apps/web/CLAUDE.md "the screen that matters most". The composer
+        // does not return until the player has clicked through it.
+        useUiStore.getState().enterResolution(message.view.lastRound);
       } else if (message.type === 'OPPONENT_COMMITTED') {
         useMatchStore
           .getState()
