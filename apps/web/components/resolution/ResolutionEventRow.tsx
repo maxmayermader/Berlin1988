@@ -6,14 +6,12 @@ export interface ResolutionEventRowProps {
 }
 
 /**
- * One row per `ResolutionEvent`, rendered through `format.eventText` — the
- * one formatter shared by the visual row and its accessible announcement
- * (apps/web/lib/CLAUDE.md rule 5), so the two can never drift apart.
+ * One row's content, rendered through `format.eventText` — the one
+ * formatter shared by the visual row and its accessible announcement
+ * (apps/web/lib/CLAUDE.md rule 5), so the two can never drift apart. Text
+ * only, not the `<li>` wrapper: `StepThrough.tsx` owns the list-item
+ * element so it can attach the per-row reveal transition (D-06) to it.
  */
 export function ResolutionEventRow({ event }: ResolutionEventRowProps) {
-  return (
-    <li className="rounded border border-[#e2e8f0] px-3 py-2 text-sm text-[#0f172a]">
-      {eventText(event)}
-    </li>
-  );
+  return <>{eventText(event)}</>;
 }

@@ -72,4 +72,42 @@ test.describe('Resolution — HUD and step-through', () => {
     await expect(page.getByRole('button', { name: 'Submit Orders' })).toBeVisible();
     await expect(page.getByText(/^0 of \d+ submitted$/)).toBeVisible();
   });
+
+  test('reduced motion: every revealed row is still visible and readable', async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Create Game' }).click();
+    await page.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
+    await page.getByRole('button', { name: 'Ready Up' }).click();
+    await page.waitForURL(/\/match\/[A-Z0-9]{6}$/, { timeout: 30_000 });
+
+    await page.getByRole('button', { name: 'Hold' }).click();
+    await page.getByRole('button', { name: 'Hold' }).click();
+    await page.getByRole('button', { name: 'Submit Orders' }).click();
+    await expect(page.getByText('Order locked in.')).toBeVisible({ timeout: 15_000 });
+
+    const rows = page.locator('ol[aria-live="polite"] > li');
+    await expect(page.getByRole('heading', { name: /^Round \d+ resolved$/ })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(rows.first()).toBeVisible();
+
+    // The information is the point and the animation is only the delivery
+    // (apps/web/components/board/CLAUDE.md rule 4) — every row that becomes
+    // visible under reduced motion stays visible and legible, never
+    // withheld pending a transition that isn't going to run.
+    const next = page.getByRole('button', { name: 'Next', exact: true });
+    let guard = 0;
+    while ((await next.count()) > 0 && guard++ < 50) {
+      await next.click();
+      const count = await rows.count();
+      for (let i = 0; i < count; i++) {
+        await expect(rows.nth(i)).toBeVisible();
+      }
+    }
+
+    await expect(page.getByRole('button', { name: /^Continue to Round \d+$/ })).toBeVisible();
+  });
 });
