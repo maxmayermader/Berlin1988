@@ -4,11 +4,11 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 01
 current_phase_name: Playable Skeleton
-status: blocked
-stopped_at: 01-06 Tasks 1-2 complete (deploy verified live); Task 3 checkpoint blocked on missing Vercel deployment of apps/web
-last_updated: "2026-08-27T19:27:21.922Z"
+status: deferred
+stopped_at: Phase 01 verified human_needed (6/7 must-haves, 5/5 roadmap Success Criteria); Task 3's deployed-hibernation + human-playtest checkpoint explicitly deferred by user decision, tracked in 01-UAT.md
+last_updated: "2026-08-27T20:04:52.734Z"
 last_activity: 2026-08-27
-last_activity_desc: 01-06 Tasks 1-2 completed and deploy verified live; Task 3 phase-gate checkpoint blocked pending Vercel deployment of apps/web
+last_activity_desc: Phase 01 verification complete (human_needed, 6/7); Vercel-deployment checkpoint deferred by explicit user choice; proceeding to Phase 2 planning
 progress:
   total_phases: 1
   completed_phases: 0
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-08-18)
 
 ## Current Position
 
-Phase: 01 (Playable Skeleton) — BLOCKED
-Plan: 6 of 6 — Tasks 1-2 complete, Task 3 (phase-gate checkpoint) blocked
-Status: Blocked on user action (Vercel deployment of apps/web)
-Last activity: 2026-08-27 — 01-06 Tasks 1-2 completed and deploy verified live; Task 3 checkpoint blocked
+Phase: 01 (Playable Skeleton) — DEFERRED (human_needed, 6/7 must-haves; all 5 roadmap Success Criteria verified)
+Plan: 6 of 6 — all plans summarized; Task 3's deployed-hibernation + human-playtest checkpoint tracked as pending UAT, not blocking
+Status: deferred
+Last activity: 2026-08-27 — Phase 01 verified human_needed; Vercel-deployment checkpoint deferred by user; proceeding to Phase 2 planning
 
 Progress: [████████░░] 83%
 
