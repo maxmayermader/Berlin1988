@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import type { AgentState, EdgeType, MapDefinition, MapNode as MapNodeType, NodeId, NodeRuntime } from '@berlin/shared';
 import { type Direction, traversalOrder } from '../../lib/board.js';
 import { AgentToken } from './AgentToken.js';
@@ -50,7 +50,22 @@ export function Board({
   strikeTargets = [],
   onSelectNode,
 }: BoardProps) {
-  const [focusedNodeId, setFocusedNodeId] = useState<NodeId | null>(map.nodes[0]?.id ?? null);
+  // Keyboard focus starts at the viewer's own agent (selectedNodeId, passed
+  // by the match page as the active agent's current position) rather than
+  // map.nodes[0] — arrow-key traversal is meaningless if it starts from an
+  // arbitrary array position instead of where the player's agent actually
+  // is. Falls back to the first node only when no agent is selected yet
+  // (e.g. before the first VIEW frame resolves an agent).
+  const [focusedNodeId, setFocusedNodeId] = useState<NodeId | null>(
+    () => selectedNodeId ?? map.nodes[0]?.id ?? null,
+  );
+
+  // Re-anchor focus when the active agent's node changes — a round
+  // resolving a move, or the player switching to their other agent — so
+  // arrow-key navigation always starts from where that agent currently is.
+  useEffect(() => {
+    if (selectedNodeId) setFocusedNodeId(selectedNodeId);
+  }, [selectedNodeId]);
 
   // Each edge is declared once per direction in map data; de-duplicated to
   // one <MapEdge> per connection regardless of which node listed it first.
