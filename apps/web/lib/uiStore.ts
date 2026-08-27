@@ -35,6 +35,13 @@ interface UiStore {
   draftFor: (agentId: AgentId) => OrderDraft;
   setDraft: (agentId: AgentId, draft: OrderDraft) => void;
   clearDraft: (agentId: AgentId) => void;
+  /** Called on ROUND_RESOLVED — a filled draft is scoped to the round it was
+   *  submitted for. Without this, the next round's composer would render
+   *  every slot pre-filled with last round's already-submitted action (both
+   *  slots non-null), so no ActionSlot is ever the empty "next slot to
+   *  fill" again and the Hold/board-click path to compose a fresh order
+   *  disappears. */
+  clearAllDrafts: () => void;
   /** Called on ROUND_RESOLVED — opens the step-through at REVEALED_AT_START. */
   enterResolution: (log: readonly ResolutionEvent[]) => void;
   /** One more event revealed, per stepThrough.ts's `advance`. */
@@ -62,6 +69,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
       delete next[agentId as string];
       return { draftByAgent: next };
     }),
+  clearAllDrafts: () => set({ draftByAgent: {} }),
   enterResolution: (log) => set({ matchSubState: 'RESOLUTION', reveal: initialReveal(log) }),
   advanceReveal: (log) =>
     set((s) => ({ reveal: advance(s.reveal ?? initialReveal(log), log) })),

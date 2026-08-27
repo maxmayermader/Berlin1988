@@ -132,6 +132,13 @@ export function useRoomSocket(
       } else if (message.type === 'ROUND_RESOLVED') {
         useMatchStore.getState().setView(message.view);
         useMatchStore.getState().resetCommitted();
+        // Round-scoped client state that must not survive into the next
+        // order phase — a stale 'accepted' orderStatus or a still-filled
+        // draft would otherwise leave the next round's composer permanently
+        // locked (OrderComposer.tsx's locked/isActive checks never clear
+        // themselves any other way).
+        useMatchStore.getState().resetOrderStatus();
+        useUiStore.getState().clearAllDrafts();
         // Opens the step-through report on the round that just resolved —
         // apps/web/CLAUDE.md "the screen that matters most". The composer
         // does not return until the player has clicked through it.

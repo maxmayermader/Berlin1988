@@ -47,6 +47,14 @@ interface MatchStore {
   /** Called on ROUND_RESOLVED — commit counts are round-scoped and must not
    *  carry over once a fresh order phase opens. */
   resetCommitted: () => void;
+  /**
+   * Called on ROUND_RESOLVED alongside resetCommitted — order status is
+   * round-scoped too. Without this, a status of 'accepted' from the round
+   * that just resolved would permanently lock every ActionSlot's isActive
+   * check (OrderComposer.tsx) and disable Submit for every subsequent
+   * round, since nothing else ever transitions 'accepted' back to 'idle'.
+   */
+  resetOrderStatus: () => void;
 }
 
 export const useMatchStore = create<MatchStore>((set) => ({
@@ -63,4 +71,5 @@ export const useMatchStore = create<MatchStore>((set) => ({
     set((s) => ({ orderStatus: { ...s.orderStatus, [agentId]: status } })),
   setClock: (deadlineAt) => set({ clock: { deadlineAt } }),
   resetCommitted: () => set({ committed: {} }),
+  resetOrderStatus: () => set({ orderStatus: {} }),
 }));
