@@ -36,30 +36,30 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. After the round deadline, resolution is presented as a step-through report in the fixed published priority order, and play advances to the next round.
   5. A full 14-round match reaches a result screen that names the winner and explains which condition ended it (dossier extraction, elimination, or round-14 score lead).
 
-**Plans**: 6 plans
+**Plans**: 6/6 plans executed
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Scaffold both apps, the wire protocol, and create/join a game by code (wave 1)
+- [x] 01-01-PLAN.md — Scaffold both apps, the wire protocol, and create/join a game by code (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — Ready-up, the ≥50% countdown, AI auto-fill, and the single match-start transition (wave 2)
+- [x] 01-02-PLAN.md — Ready-up, the ≥50% countdown, AI auto-fill, and the single match-start transition (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — Sealed orders, the 90-second server clock, bot seats, and the wire-level fog test (wave 3)
+- [x] 01-03-PLAN.md — Sealed orders, the 90-second server clock, bot seats, and the wire-level fog test (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-04-PLAN.md — The Berlin board and the two-actions-per-agent order composer (wave 4)
+- [x] 01-04-PLAN.md — The Berlin board and the two-actions-per-agent order composer (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 01-05-PLAN.md — The order HUD and the click-to-advance resolution step-through (wave 5)
+- [x] 01-05-PLAN.md — The order HUD and the click-to-advance resolution step-through (wave 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 01-06-PLAN.md — The result screen, the n=4 timing measurement, and the deployed hibernation check (wave 6)
+- [x] 01-06-PLAN.md — The result screen, the n=4 timing measurement, and the deployed hibernation check (wave 6)
 
 **UI hint**: yes
 
@@ -122,7 +122,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Playable Skeleton | 0/6 | Not started | - |
+| 1. Playable Skeleton | 6/6 | In Progress|  |
 | 2. Deckbuilder & Persistent Loadouts | 0/TBD | Not started | - |
 | 3. Open Lobbies, Host Control & Table Talk | 0/TBD | Not started | - |
 | 4. Deduction Surfaces & Presentation Polish | 0/TBD | Not started | - |

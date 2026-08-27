@@ -9,8 +9,8 @@ Requirements for initial release (the UI/realtime milestone). Each maps to roadm
 
 ### Home & Navigation
 
-- [ ] **HOME-01**: User can create a new game from the home page, receiving a unique join code
-- [ ] **HOME-02**: User can join a game by entering a join code
+- [x] **HOME-01**: User can create a new game from the home page, receiving a unique join code
+- [x] **HOME-02**: User can join a game by entering a join code
 - [ ] **HOME-03**: User can browse a public list of open lobbies and join one with a click
 - [ ] **HOME-04**: User can access the deckbuilder from the home page
 
@@ -26,9 +26,9 @@ Requirements for initial release (the UI/realtime milestone). Each maps to roadm
 
 - [ ] **LOBBY-01**: Host can toggle game size (seat count) before start
 - [ ] **LOBBY-02**: Host can kick a player from the lobby
-- [ ] **LOBBY-03**: Players can ready up; each seat's ready state is visible to everyone
-- [ ] **LOBBY-04**: A countdown to start begins automatically once ≥50% of filled seats are ready
-- [ ] **LOBBY-05**: Host can start a game solo, auto-filling all other seats with AI opponents
+- [x] **LOBBY-03**: Players can ready up; each seat's ready state is visible to everyone
+- [x] **LOBBY-04**: A countdown to start begins automatically once ≥50% of filled seats are ready
+- [x] **LOBBY-05**: Host can start a game solo, auto-filling all other seats with AI opponents
 - [ ] **LOBBY-06**: A kicked or disconnected player's seat can be filled by AI rather than voiding the match
 - [ ] **LOBBY-07**: Each AI-controlled seat displays the bot's name and personality, not just a difficulty label
 
@@ -40,14 +40,14 @@ Requirements for initial release (the UI/realtime milestone). Each maps to roadm
 
 ### In-Match UI
 
-- [ ] **MATCH-01**: The match board renders the node-graph map of Berlin as the primary play surface
-- [ ] **MATCH-02**: Player can assign 2 actions per agent (free moves, Intel-funded Sprints, loadout plays) against the map each round
-- [ ] **MATCH-03**: Once a player submits orders, other players see only a locked-in indicator — never the order content — before resolution
-- [ ] **MATCH-04**: Player sees a live count of how many players have submitted orders this round, plus a visible countdown timer, without seeing who or what
-- [ ] **MATCH-05**: Round resolution is presented as a step-through report in fixed priority order, not a live all-agents-at-once animation. Each individual step may animate (e.g. the affected agent's icon moving to its new position for that one event) as long as it stays sequential and never reveals information ahead of its rules-defined step
+- [x] **MATCH-01**: The match board renders the node-graph map of Berlin as the primary play surface
+- [x] **MATCH-02**: Player can assign 2 actions per agent (free moves, Intel-funded Sprints, loadout plays) against the map each round
+- [x] **MATCH-03**: Once a player submits orders, other players see only a locked-in indicator — never the order content — before resolution
+- [x] **MATCH-04**: Player sees a live count of how many players have submitted orders this round, plus a visible countdown timer, without seeing who or what
+- [x] **MATCH-05**: Round resolution is presented as a step-through report in fixed priority order, not a live all-agents-at-once animation. Each individual step may animate (e.g. the affected agent's icon moving to its new position for that one event) as long as it stays sequential and never reveals information ahead of its rules-defined step
 - [ ] **MATCH-06**: Player can view a round history/log of past resolutions
 - [ ] **MATCH-07**: Player can view their own Burn Track panel showing exactly what public information opponents have learned about them
-- [ ] **MATCH-08**: On match end, a result screen explains the outcome (dossier extraction, elimination, or round-14 score) and who won
+- [x] **MATCH-08**: On match end, a result screen explains the outcome (dossier extraction, elimination, or round-14 score) and who won
 
 ### UI Polish
 
@@ -94,17 +94,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HOME-01 | Phase 1 | Pending |
-| HOME-02 | Phase 1 | Pending |
-| LOBBY-03 | Phase 1 | Pending |
-| LOBBY-04 | Phase 1 | Pending |
-| LOBBY-05 | Phase 1 | Pending |
-| MATCH-01 | Phase 1 | Pending |
-| MATCH-02 | Phase 1 | Pending |
-| MATCH-03 | Phase 1 | Pending |
-| MATCH-04 | Phase 1 | Pending |
-| MATCH-05 | Phase 1 | Pending |
-| MATCH-08 | Phase 1 | Pending |
+| HOME-01 | Phase 1 | Complete |
+| HOME-02 | Phase 1 | Complete |
+| LOBBY-03 | Phase 1 | Complete |
+| LOBBY-04 | Phase 1 | Complete |
+| LOBBY-05 | Phase 1 | Complete |
+| MATCH-01 | Phase 1 | Complete |
+| MATCH-02 | Phase 1 | Complete |
+| MATCH-03 | Phase 1 | Complete |
+| MATCH-04 | Phase 1 | Complete |
+| MATCH-05 | Phase 1 | Complete |
+| MATCH-08 | Phase 1 | Complete |
 | HOME-04 | Phase 2 | Pending |
 | DECK-01 | Phase 2 | Pending |
 | DECK-02 | Phase 2 | Pending |
@@ -124,6 +124,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | POLISH-01 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 28 total
 - Mapped to phases: 28 ✓
 - Unmapped: 0 ✓
