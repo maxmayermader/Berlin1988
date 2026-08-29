@@ -4,6 +4,7 @@ import {
   budgetPointsOf,
   DEFAULT_RULESET,
   HUNTER,
+  isPassive,
   OLIGARCH,
   PHANTOM,
   SPIDER,
@@ -380,5 +381,90 @@ describe('useLoadoutStore.add / .remove', () => {
     useLoadoutStore.setState({ loadout: ['ag_red', 'ag_red', 'ag_blue'] as CardId[] });
     useLoadoutStore.getState().remove('ag_red' as CardId);
     expect(useLoadoutStore.getState().loadout).toEqual(['ag_red', 'ag_blue']);
+  });
+});
+
+/**
+ * The reachability guarantee (D-04, the phase's own prohibition against a
+ * card silently missing a section): partitions ALL_CARDS the exact same
+ * way CardGrid.tsx does — one bucket per ICONS member holding that icon's
+ * actives, plus a final Passives bucket — and proves the union covers
+ * every card exactly once. A card whose icon fell outside ICONS, or that
+ * ended up in two buckets, would never surface as a rendering error; only
+ * this assertion catches it.
+ */
+describe('card pool reachability (D-04 partition)', () => {
+  it('every card in ALL_CARDS lands in exactly one section: an ICONS-grouped active bucket, or Passives', () => {
+    const buckets: (typeof ALL_CARDS)[number][][] = ICONS.map((icon) =>
+      ALL_CARDS.filter((c) => c.icon === icon && !isPassive(c)),
+    );
+    buckets.push(ALL_CARDS.filter(isPassive));
+
+    const union = buckets.flat();
+    expect(union).toHaveLength(ALL_CARDS.length);
+
+    const seenIds = union.map((c) => c.id);
+    expect(new Set(seenIds).size).toBe(ALL_CARDS.length); // no card placed twice
+    expect(new Set(seenIds)).toEqual(new Set(ALL_CARDS.map((c) => c.id))); // no orphan left out
+  });
+
+  it('every ICONS member has at least one active card, so no section is ever empty today', () => {
+    // If a future content edit ever drops an icon to zero actives, this
+    // fails loudly here rather than the grid quietly rendering six section
+    // headers over five populated sections — the section itself still
+    // renders regardless (CardGrid.tsx maps unconditionally over ICONS),
+    // but this pins the assumption that makes it currently unobservable.
+    for (const icon of ICONS) {
+      expect(ACTIVE_CARDS.filter((c) => c.icon === icon).length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('loadoutLegality.violatingCardIds', () => {
+  it('is empty for an over-budget draft that has no ICON_LIMIT or UNKNOWN_CARD violation', () => {
+    const overBudget = HUNTER.map((id) => (id === 'ag_red' ? 'ag_green' : id)) as CardId[];
+    const legality = loadoutLegality(overBudget);
+    expect(legality.violations.map((v) => v.code)).toEqual(['OVER_BUDGET']);
+    expect(legality.violatingCardIds).toEqual([]);
+  });
+
+  it('is empty for a too-few-colors draft that has no ICON_LIMIT or UNKNOWN_CARD violation', () => {
+    const monoSector = monoSectorDraft('GOLD');
+    const legality = loadoutLegality(monoSector);
+    expect(legality.violations.map((v) => v.code)).toEqual(['TOO_FEW_COLORS']);
+    expect(legality.violatingCardIds).toEqual([]);
+  });
+
+  it('for an over-limit icon, contains exactly the surplus entries in draft order — the first maxPerIcon are not flagged', () => {
+    const overLimit = HUNTER.map((id) => (id === 'dc_blue' ? 'wt_gold' : id)) as CardId[];
+    const legality = loadoutLegality(overLimit);
+    expect(legality.violations.map((v) => v.code)).toEqual(['ICON_LIMIT']);
+    // overLimit's WIRETAP entries in draft order: wt_blue, wt_red, ps_counter_surv, wt_gold
+    // (HUNTER's order with dc_blue swapped in place for wt_gold) — the first
+    // three are the pre-existing legal three, the fourth is the surplus.
+    expect(legality.violatingCardIds).toEqual(['wt_gold']);
+  });
+
+  it('for an unresolvable id, contains that id', () => {
+    const draft = [...cheapDiverseDraft(9), 'not_a_real_card' as CardId];
+    const legality = loadoutLegality(draft);
+    expect(legality.violations.map((v) => v.code)).toContain('UNKNOWN_CARD');
+    expect(legality.violatingCardIds).toContain('not_a_real_card');
+  });
+
+  it('is non-empty only when validateLoadout reports ICON_LIMIT or UNKNOWN_CARD — never invents a violation the engine did not report', () => {
+    const cases: CardId[][] = [
+      [...HUNTER] as CardId[], // legal
+      HUNTER.map((id) => (id === 'ag_red' ? 'ag_green' : id)) as CardId[], // OVER_BUDGET only
+      monoSectorDraft('GOLD'), // TOO_FEW_COLORS only
+      HUNTER.map((id) => (id === 'dc_blue' ? 'wt_gold' : id)) as CardId[], // ICON_LIMIT
+      [...cheapDiverseDraft(9), 'not_a_real_card' as CardId], // UNKNOWN_CARD
+    ];
+    for (const draft of cases) {
+      const legality = loadoutLegality(draft);
+      const codes = new Set(legality.violations.map((v) => v.code));
+      const shouldHaveAttribution = codes.has('ICON_LIMIT') || codes.has('UNKNOWN_CARD');
+      expect(legality.violatingCardIds.length > 0).toBe(shouldHaveAttribution);
+    }
   });
 });

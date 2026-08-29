@@ -174,4 +174,64 @@ test.describe('Deckbuilder — full card grid, live add/remove, and a persistent
     await page.mouse.wheel(0, 2000);
     await expect(page.getByText(/\/10 cards/)).toBeVisible();
   });
+
+  test('every one of the 34 tiles is present and enabled on a first visit with no prior storage', async ({
+    page,
+  }) => {
+    await page.goto('/deck');
+
+    const tiles = page.locator('[data-card-id]').filter({ has: page.getByRole('button') });
+    await expect(tiles).toHaveCount(ALL_CARDS.length);
+
+    // Reachable means selectable, not merely painted — no tile's toggle is
+    // disabled, locked, or gated on a first visit.
+    await expect(tiles.locator('button[disabled]')).toHaveCount(0);
+    await expect(tiles.locator('button')).toHaveCount(ALL_CARDS.length);
+  });
+
+  test('a fourth card of one icon highlights that tile and names the icon in the panel', async ({ page }) => {
+    await page.goto('/deck');
+
+    // The default (unseeded) draft is PHANTOM, which already carries three
+    // DECOY cards (dc_green, dc_blue, ps_ghost) — adding one more DECOY
+    // (dc_red, not in PHANTOM) is a one-click path to ICON_LIMIT with no
+    // preset load needed.
+    const target = page.locator('[data-card-id="dc_red"]').filter({ has: page.getByRole('button') });
+    await target.getByRole('button', { name: 'Add' }).click();
+
+    await expect(page.getByText(/At most 3 DECOY cards allowed/)).toBeVisible();
+    await expect(target).toHaveClass(/border-l-\[#dc2626\]/);
+  });
+
+  test('an over-budget draft flags the budget bar but highlights no tile', async ({ page }) => {
+    await page.goto('/deck');
+
+    // 'st_red' (Wet Work, STRIKE/RED, 4 BP) is not in the default PHANTOM
+    // draft and STRIKE is at 0 there — adding it only pushes the budget
+    // total (25 -> 29) past the 26 BP ceiling, with no icon or color rule
+    // affected.
+    const target = page.locator('[data-card-id="st_red"]').filter({ has: page.getByRole('button') });
+    await target.getByRole('button', { name: 'Add' }).click();
+
+    await expect(page.getByText(/Loadout costs \d+ Budget Points, limit is 26\./)).toBeVisible();
+
+    const tiles = page.locator('[data-card-id]').filter({ has: page.getByRole('button') });
+    const tileCount = await tiles.count();
+    for (let i = 0; i < tileCount; i++) {
+      await expect(tiles.nth(i)).not.toHaveClass(/border-l-\[#dc2626\]/);
+    }
+  });
+
+  test('a legal deck shows the positive confirmation and no violation rows', async ({ page }) => {
+    page.on('dialog', (dialog) => dialog.accept());
+    await page.goto('/deck');
+
+    // HUNTER is legal per DEFAULT_RULESET (packages/engine/src/content/loadouts.ts)
+    // — quickest reachable via a preset load, per the plan's own note.
+    await page.getByRole('button', { name: 'Load Hunter' }).click();
+
+    await expect(page.getByText('Loadout legal')).toBeVisible();
+    await expect(page.getByText('10 cards, ≤3 per icon, 2+ colors, ≤26 BP. Ready to save.')).toBeVisible();
+    await expect(page.locator('li')).toHaveCount(0);
+  });
 });
