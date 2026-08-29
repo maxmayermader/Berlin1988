@@ -1,7 +1,25 @@
-import { DEFAULT_RULESET, HUNTER, OLIGARCH, PHANTOM, SPIDER, STARTER_LOADOUTS, validateLoadout } from '@berlin/engine';
-import type { CardId } from '@berlin/shared';
+import {
+  ACTIVE_CARDS,
+  ALL_CARDS,
+  budgetPointsOf,
+  DEFAULT_RULESET,
+  HUNTER,
+  OLIGARCH,
+  PHANTOM,
+  SPIDER,
+  STARTER_LOADOUTS,
+  validateLoadout,
+} from '@berlin/engine';
+import { ICONS, SECTORS, type CardId, type IconType, type Sector } from '@berlin/shared';
 import { describe, expect, it } from 'vitest';
-import { loadLoadout, LOADOUT_STORAGE_KEY, saveLoadout, type StorageLike } from './loadoutStore.js';
+import {
+  loadLoadout,
+  loadoutLegality,
+  LOADOUT_STORAGE_KEY,
+  saveLoadout,
+  useLoadoutStore,
+  type StorageLike,
+} from './loadoutStore.js';
 
 /** In-memory stand-in for localStorage — copies apps/web/lib/identity.test.ts's
  *  fixture rather than reaching for a DOM environment. Tracks a write count
@@ -154,5 +172,213 @@ describe('the four starter presets (loaded via saveLoadout as loadPreset would)'
 
   it('STARTER_LOADOUTS exposes exactly these four presets by name', () => {
     expect(new Set(Object.keys(STARTER_LOADOUTS))).toEqual(new Set(Object.keys(PRESETS)));
+  });
+});
+
+/**
+ * Builds a legal-except-for-what-we-name draft by filtering ALL_CARDS,
+ * never by hand-typing ids (02-RESEARCH.md, and the drift risk it flags in
+ * Budget Point costs). Greedily takes the cheapest cards while respecting
+ * ruleset.maxPerIcon, so the result never trips ICON_LIMIT or (short of the
+ * ruleset's own ceiling) OVER_BUDGET by construction.
+ */
+function cheapDiverseDraft(n: number): CardId[] {
+  const perIcon = new Map<IconType, number>();
+  const chosen: CardId[] = [];
+  for (const card of [...ACTIVE_CARDS].sort((a, b) => a.budgetPoints - b.budgetPoints)) {
+    if (chosen.length >= n) break;
+    const count = perIcon.get(card.icon) ?? 0;
+    if (count >= DEFAULT_RULESET.maxPerIcon) continue;
+    chosen.push(card.id);
+    perIcon.set(card.icon, count + 1);
+  }
+  return chosen;
+}
+
+/**
+ * A ten-card draft drawn entirely from one sector — as close to "a single
+ * sector" as the current 34-card pool allows. No sector actually has ten
+ * cards (the richest, GOLD/GREEN, has nine — six actives, one per icon,
+ * plus three same-sector passives), so this pads to size with a repeated
+ * id. validateLoadout() has no duplicate-id rule at all (02-UI-SPEC.md), so
+ * a repeat is still "every card in this draft is sector X" for the purpose
+ * of the color-count rule under test, and the padded card is the sector's
+ * cheapest so no icon or budget rule trips as a side effect.
+ */
+function monoSectorDraft(sector: Sector): CardId[] {
+  const cards = ALL_CARDS.filter((c) => c.sector === sector);
+  if (cards.length === 0) throw new Error(`No cards in sector ${sector} — fixture cannot be built`);
+  const cheapest = [...cards].sort((a, b) => a.budgetPoints - b.budgetPoints)[0]!;
+  const ids = cards.map((c) => c.id);
+  while (ids.length < DEFAULT_RULESET.loadoutSize) ids.push(cheapest.id);
+  return ids;
+}
+
+describe('loadoutLegality', () => {
+  it.each(Object.entries(PRESETS))(
+    '%s: violations are deep-equal to a direct validateLoadout() call, and isLegal is true',
+    (_name, preset) => {
+      const legality = loadoutLegality(preset);
+      expect(legality.violations).toEqual(validateLoadout(preset, DEFAULT_RULESET));
+      expect(legality.isLegal).toBe(true);
+    },
+  );
+
+  const spreadOfDrafts: Record<string, CardId[]> = {
+    empty: [],
+    short: cheapDiverseDraft(3),
+    'exact-size': cheapDiverseDraft(10),
+    oversize: cheapDiverseDraft(11),
+    'unknown-id': [...cheapDiverseDraft(9), 'not_a_real_card' as CardId],
+    'single-sector': monoSectorDraft('GOLD'),
+  };
+
+  it.each(Object.entries(spreadOfDrafts))(
+    '%s draft: violations, isLegal, and budgetPoints all agree with a direct engine call',
+    (_label, draft) => {
+      const legality = loadoutLegality(draft);
+      const oracleViolations = validateLoadout(draft, DEFAULT_RULESET);
+      expect(legality.violations).toEqual(oracleViolations);
+      expect(legality.isLegal).toBe(oracleViolations.length === 0);
+      expect(legality.budgetPoints).toBe(budgetPointsOf(draft));
+    },
+  );
+
+  it('an empty draft reports WRONG_SIZE (an empty deck is an editable state that reports, not a crash) and matches the engine exactly', () => {
+    const legality = loadoutLegality([]);
+    // An empty draft also has zero distinct colors, which is independently
+    // < minColors — validateLoadout() correctly reports both WRONG_SIZE and
+    // TOO_FEW_COLORS for it, and the assertion is against that oracle
+    // directly rather than a hand-predicted count.
+    expect(legality.violations).toEqual(validateLoadout([], DEFAULT_RULESET));
+    expect(legality.violations.map((v) => v.code)).toContain('WRONG_SIZE');
+    expect(legality.isLegal).toBe(false);
+  });
+
+  it('a three-card draft (otherwise legal) yields WRONG_SIZE and nothing else', () => {
+    const draft = cheapDiverseDraft(3);
+    const legality = loadoutLegality(draft);
+    expect(legality.violations.map((v) => v.code)).toEqual(['WRONG_SIZE']);
+  });
+
+  it(`a ten-card draft at exactly the ruleset's size/budget/icon/color thresholds yields zero violations (HUNTER: ${DEFAULT_RULESET.loadoutSize} cards, ${DEFAULT_RULESET.maxBudgetPoints} BP, ${DEFAULT_RULESET.maxPerIcon}-per-icon on two icons, ${DEFAULT_RULESET.minColors} colors)`, () => {
+    expect(HUNTER).toHaveLength(DEFAULT_RULESET.loadoutSize);
+    expect(budgetPointsOf(HUNTER)).toBe(DEFAULT_RULESET.maxBudgetPoints);
+    const legality = loadoutLegality(HUNTER);
+    expect(legality.iconCounts.WIRETAP).toBe(DEFAULT_RULESET.maxPerIcon);
+    expect(Object.values(legality.colorsPresent).filter(Boolean)).toHaveLength(DEFAULT_RULESET.minColors);
+    expect(legality.violations).toEqual([]);
+  });
+
+  it('one card past maxBudgetPoints (10 cards, otherwise legal) produces exactly one OVER_BUDGET violation, and removing it clears it', () => {
+    // Swap HUNTER's cheapest AGENT card (ag_red, 1 BP) for a costlier same-icon
+    // card (ag_green, 2 BP) — icon counts and colors are unaffected, only the
+    // budget total moves, from exactly at the ceiling to one past it.
+    const overBudget = HUNTER.map((id) => (id === 'ag_red' ? 'ag_green' : id)) as CardId[];
+    expect(overBudget).toHaveLength(DEFAULT_RULESET.loadoutSize);
+    expect(budgetPointsOf(overBudget)).toBe(DEFAULT_RULESET.maxBudgetPoints + 1);
+    const legality = loadoutLegality(overBudget);
+    expect(legality.violations.map((v) => v.code)).toEqual(['OVER_BUDGET']);
+
+    const backToLegal = loadoutLegality(HUNTER);
+    expect(backToLegal.violations).toEqual([]);
+  });
+
+  it('a fourth card of one icon (10 cards, otherwise legal) produces exactly one ICON_LIMIT violation naming that icon, and removing it clears it', () => {
+    // Swap HUNTER's one DECOY card for a fourth WIRETAP — HUNTER already
+    // carries three (wt_blue, wt_red, ps_counter_surv); dc_blue -> wt_gold
+    // keeps the size and budget unchanged (both cost 2 BP) and colors intact
+    // (RED/BLUE still present via other cards, GOLD is simply additional).
+    const overLimit = HUNTER.map((id) => (id === 'dc_blue' ? 'wt_gold' : id)) as CardId[];
+    expect(overLimit).toHaveLength(DEFAULT_RULESET.loadoutSize);
+    expect(budgetPointsOf(overLimit)).toBe(budgetPointsOf(HUNTER));
+    const legality = loadoutLegality(overLimit);
+    expect(legality.violations).toHaveLength(1);
+    expect(legality.violations[0]?.code).toBe('ICON_LIMIT');
+    expect(legality.violations[0]?.message).toContain('WIRETAP');
+    expect(legality.iconCounts.WIRETAP).toBe(DEFAULT_RULESET.maxPerIcon + 1);
+
+    const backToLegal = loadoutLegality(HUNTER);
+    expect(backToLegal.violations).toEqual([]);
+  });
+
+  it('a ten-card draft drawn from a single sector produces TOO_FEW_COLORS', () => {
+    const draft = monoSectorDraft('GOLD');
+    expect(draft).toHaveLength(DEFAULT_RULESET.loadoutSize);
+    const legality = loadoutLegality(draft);
+    expect(legality.violations.map((v) => v.code)).toEqual(['TOO_FEW_COLORS']);
+  });
+
+  it('a draft containing an unresolvable id produces UNKNOWN_CARD without throwing, and counts it as zero Budget Points', () => {
+    const draft = [...cheapDiverseDraft(9), 'not_a_real_card' as CardId];
+    let legality: ReturnType<typeof loadoutLegality> | undefined;
+    expect(() => {
+      legality = loadoutLegality(draft);
+    }).not.toThrow();
+    expect(legality!.violations.some((v) => v.code === 'UNKNOWN_CARD')).toBe(true);
+    expect(legality!.budgetPoints).toBe(budgetPointsOf(cheapDiverseDraft(9)));
+  });
+
+  it('iconCounts has an entry for every ICONS member, including zero, and counts passives too', () => {
+    const legality = loadoutLegality(HUNTER);
+    for (const icon of ICONS) {
+      expect(legality.iconCounts).toHaveProperty(icon);
+      expect(typeof legality.iconCounts[icon]).toBe('number');
+    }
+    // ps_k9 (STRIKE, RED, passive) and ps_counter_surv (WIRETAP, BLUE,
+    // passive) are both in HUNTER and already counted in the STRIKE/WIRETAP
+    // totals asserted above (3 each) — passives are not a separate tally.
+    expect(legality.iconCounts.AGENT).toBe(1);
+  });
+
+  it('colorsPresent has an entry for every SECTORS member, including absent colors', () => {
+    const legality = loadoutLegality(HUNTER);
+    for (const sector of SECTORS) {
+      expect(legality.colorsPresent).toHaveProperty(sector);
+    }
+    expect(legality.colorsPresent.GOLD).toBe(false);
+    expect(legality.colorsPresent.RED).toBe(true);
+    expect(legality.colorsPresent.BLUE).toBe(true);
+  });
+
+  it('shuffling a draft leaves violations, budget points, icon counts, and colors identical', () => {
+    const forward = loadoutLegality(HUNTER);
+    const shuffled = [...HUNTER].reverse();
+    const backward = loadoutLegality(shuffled);
+    expect(backward.violations).toEqual(forward.violations);
+    expect(backward.budgetPoints).toBe(forward.budgetPoints);
+    expect(backward.iconCounts).toEqual(forward.iconCounts);
+    expect(backward.colorsPresent).toEqual(forward.colorsPresent);
+    expect(backward.isLegal).toBe(forward.isLegal);
+  });
+
+  it('calling loadoutLegality twice on the same unchanged draft returns deep-equal results and mutates nothing', () => {
+    const draftSnapshot = [...HUNTER];
+    const first = loadoutLegality(HUNTER);
+    const second = loadoutLegality(HUNTER);
+    expect(second).toEqual(first);
+    expect(HUNTER).toEqual(draftSnapshot);
+  });
+});
+
+describe('useLoadoutStore.add / .remove', () => {
+  it('add never refuses: an eleventh card is accepted, growing the draft to eleven with WRONG_SIZE left to report it', () => {
+    useLoadoutStore.setState({ loadout: [...HUNTER] as CardId[] });
+    useLoadoutStore.getState().add('ag_gold' as CardId);
+    const draft = useLoadoutStore.getState().loadout;
+    expect(draft).toHaveLength(11);
+    expect(validateLoadout(draft, DEFAULT_RULESET).map((v) => v.code)).toContain('WRONG_SIZE');
+  });
+
+  it('remove on a draft that does not contain the id leaves the draft deep-equal and unchanged', () => {
+    useLoadoutStore.setState({ loadout: [...HUNTER] as CardId[] });
+    useLoadoutStore.getState().remove('not_in_hunter' as CardId);
+    expect(useLoadoutStore.getState().loadout).toEqual([...HUNTER]);
+  });
+
+  it('remove drops only the first matching entry', () => {
+    useLoadoutStore.setState({ loadout: ['ag_red', 'ag_red', 'ag_blue'] as CardId[] });
+    useLoadoutStore.getState().remove('ag_red' as CardId);
+    expect(useLoadoutStore.getState().loadout).toEqual(['ag_red', 'ag_blue']);
   });
 });
