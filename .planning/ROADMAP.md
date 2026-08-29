@@ -79,10 +79,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Saved loadouts survive a page refresh and a fresh browser session with no login.
   5. User can edit or swap their loadout from inside the lobby using the same deckbuilder component, and the match is played with that loadout.
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — The tracer: /deck, the persisted loadout, the SUBMIT_LOADOUT pipe, and per-seat loadouts at match start (wave 1)
+- [x] 02-01-PLAN.md — The tracer: /deck, the persisted loadout, the SUBMIT_LOADOUT pipe, and per-seat loadouts at match start (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -136,7 +136,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Playable Skeleton | 6/6 | In Progress|  |
-| 2. Deckbuilder & Persistent Loadouts | 0/4 | Not started | - |
+| 2. Deckbuilder & Persistent Loadouts | 1/4 | In Progress|  |
 | 3. Open Lobbies, Host Control & Table Talk | 0/TBD | Not started | - |
 | 4. Deduction Surfaces & Presentation Polish | 0/TBD | Not started | - |
 

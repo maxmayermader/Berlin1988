@@ -12,14 +12,14 @@ Requirements for initial release (the UI/realtime milestone). Each maps to roadm
 - [x] **HOME-01**: User can create a new game from the home page, receiving a unique join code
 - [x] **HOME-02**: User can join a game by entering a join code
 - [ ] **HOME-03**: User can browse a public list of open lobbies and join one with a click
-- [ ] **HOME-04**: User can access the deckbuilder from the home page
+- [x] **HOME-04**: User can access the deckbuilder from the home page
 
 ### Deckbuilder
 
 - [ ] **DECK-01**: User can build a 10-card loadout choosing from all available cards
 - [ ] **DECK-02**: Deckbuilder enforces loadout legality live via a persistent visual meter (BP used/26, icon-count pips, color-requirement checklist) — not just pass/fail at submit time
-- [ ] **DECK-03**: User can load one of the four starter preset loadouts (Phantom, Hunter, Oligarch, Spider) with one click
-- [ ] **DECK-04**: User's saved loadouts persist in browser local storage across sessions (no login)
+- [x] **DECK-03**: User can load one of the four starter preset loadouts (Phantom, Hunter, Oligarch, Spider) with one click
+- [x] **DECK-04**: User's saved loadouts persist in browser local storage across sessions (no login)
 - [ ] **DECK-05**: User can edit their loadout ("class") from within the lobby, using the same deckbuilder component as the home page
 
 ### Lobby
@@ -105,11 +105,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MATCH-04 | Phase 1 | Complete |
 | MATCH-05 | Phase 1 | Complete |
 | MATCH-08 | Phase 1 | Complete |
-| HOME-04 | Phase 2 | Pending |
+| HOME-04 | Phase 2 | Complete |
 | DECK-01 | Phase 2 | Pending |
 | DECK-02 | Phase 2 | Pending |
-| DECK-03 | Phase 2 | Pending |
-| DECK-04 | Phase 2 | Pending |
+| DECK-03 | Phase 2 | Complete |
+| DECK-04 | Phase 2 | Complete |
 | DECK-05 | Phase 2 | Pending |
 | HOME-03 | Phase 3 | Pending |
 | LOBBY-01 | Phase 3 | Pending |

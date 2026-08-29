@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 01
-current_phase_name: Playable Skeleton
-status: deferred
-stopped_at: Phase 02 context gathered
-last_updated: "2026-08-28T00:20:45.580Z"
-last_activity: 2026-08-27
-last_activity_desc: Phase 01 verification complete (human_needed, 6/7); Vercel-deployment checkpoint deferred by explicit user choice; proceeding to Phase 2 planning
+current_phase: 02
+current_phase_name: Deckbuilder & Persistent Loadouts
+status: in_progress
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-08-29T20:43:17.000Z"
+last_activity: 2026-08-29
+last_activity_desc: Phase 02 Plan 01 executed — SUBMIT_LOADOUT wire pipe, persisted loadoutStore, /deck route, per-seat loadouts at match start
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 10
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -23,16 +23,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-18)
 
 **Core value:** A group of players (any mix of humans and AI) can go from the home page through a lobby into a complete, playable 14-round match and see a result — with no gaps in the underlying rules engine.
-**Current focus:** Phase 01 — Playable Skeleton
+**Current focus:** Phase 02 — Deckbuilder & Persistent Loadouts
 
 ## Current Position
 
-Phase: 01 (Playable Skeleton) — DEFERRED (human_needed, 6/7 must-haves; all 5 roadmap Success Criteria verified)
-Plan: 6 of 6 — all plans summarized; Task 3's deployed-hibernation + human-playtest checkpoint tracked as pending UAT, not blocking
-Status: deferred
-Last activity: 2026-08-27 — Phase 01 verified human_needed; Vercel-deployment checkpoint deferred by user; proceeding to Phase 2 planning
+Phase: 02 (Deckbuilder & Persistent Loadouts) — IN PROGRESS
+Plan: 1 of 4 complete (02-01-PLAN.md, the tracer: /deck, SUBMIT_LOADOUT pipe, per-seat loadouts at match start). Waves 2 (02-02, 02-03) and 3 (02-04) pending.
+Status: in_progress
+Last activity: 2026-08-29 — 02-01-PLAN.md executed: wire protocol, room-side loadout state/handler/routing, per-seat startMatch dealing, persisted loadoutStore, /deck route, home + lobby wiring. Room-side and browser-side tracer tests both green.
 
-Progress: [████████░░] 83%
+Phase 1 status (unchanged by this plan): DEFERRED (human_needed, 6/7 must-haves; all 5 roadmap Success Criteria verified). Task 3's deployed-hibernation + human-playtest checkpoint remains pending UAT, not blocking.
+
+Progress: [███████░░░] 70% (7/10 plans across the v1.0 milestone so far — updated after each plan completion)
 
 ## Performance Metrics
 
@@ -64,6 +66,7 @@ Progress: [████████░░] 83%
 | Phase 01 P04 | unknown (interrupted, resumed) | 3 tasks | 17 files |
 | Phase 01 P05 | 55min | 3 tasks | 15 files |
 | Phase 01 P06 | 45min | 2 tasks | 18 files |
+| Phase 02 P01 | 55min | 2 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -93,6 +96,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Static-source vitest assertions (reading component source for useReducedMotion, #2563EB, truncateCodename) served as genuine RED-before-GREEN TDD for UI-only conventions with no component-test stack this phase.
 - [Phase ?]: SelfView.score added as a deliberate exception to 'no engine changes expected' this phase — closes a fog-of-war asymmetry rather than recomputing score in the browser
 - [Phase ?]: 01-06 Task 3 (deployed hibernation + full-match human checkpoint) is blocked: no Vercel deployment of apps/web exists in this environment (no CLI, no linked project) — user must deploy and set NEXT_PUBLIC_PARTYKIT_HOST before Task 3 can be attempted
+- [Phase 02-01]: SUBMIT_LOADOUT/LOADOUT_ACK/LOADOUT_REJECTED added to the wire protocol, modelled directly on the existing SUBMIT_ORDER/ORDER_ACK/ORDER_REJECTED triad — no identity field on the inbound message, seat always resolved via seatFor(connectionId).
+- [Phase 02-01]: RoomSeat.loadout is server-only and never enters toSnapshot()/LobbySeat — a loadout is hidden pre-match information under docs/GAME_DESIGN.md §6.3, not public lobby state.
+- [Phase 02-01]: startMatch re-validates a seat's stored loadout against validateLoadout() a second time (defence in depth beyond the handler's own check) and falls back to PHANTOM if it no longer validates; bot seats are never routed through the human SUBMIT_LOADOUT path and keep createMatch's own per-faction starter loadout.
+- [Phase 02-01]: apps/web/lib/loadoutStore.ts mirrors identity.ts's SSR-safe hydration pattern exactly — hydrate() is called from a mount effect, never inside the Zustand create() initializer, to avoid a Next.js server-render-time localStorage read.
 
 ### Pending Todos
 
@@ -121,6 +128,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-27T23:06:47.330Z
-Stopped at: Phase 02 context gathered
-Resume file: .planning/phases/02-deckbuilder-persistent-loadouts/02-CONTEXT.md
+Last session: 2026-08-29T20:43:17.000Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
