@@ -1,5 +1,5 @@
-import { PHANTOM } from '@berlin/engine';
-import type { CardId, Loadout } from '@berlin/shared';
+import { budgetPointsOf, DEFAULT_RULESET, PHANTOM, tryGetCard, validateLoadout } from '@berlin/engine';
+import { ICONS, SECTORS, type CardId, type IconType, type Loadout, type LoadoutViolation, type Sector } from '@berlin/shared';
 import { create } from 'zustand';
 
 /**
@@ -86,6 +86,11 @@ export interface LoadoutSaveStatus {
   readonly message?: string;
 }
 
+const STORAGE_FAILED_STATUS: LoadoutSaveStatus = {
+  state: 'storage-failed',
+  message: "Couldn't save changes in this browser. Your edits won't persist after you leave this page.",
+};
+
 interface LoadoutStore {
   readonly loadout: CardId[];
   /** False until hydrate() has run once on mount — never read localStorage
@@ -97,10 +102,17 @@ interface LoadoutStore {
   /** D-02: a full overwrite, never a merge — the entire array is replaced
    *  and persisted immediately. */
   loadPreset: (preset: Loadout) => void;
+  /** D-03: never refuses. Appends to the end of the draft and persists
+   *  immediately, even past ten cards — WRONG_SIZE is what reports that,
+   *  not a blocked action. */
+  add: (cardId: CardId) => void;
+  /** D-03: never refuses. Drops the first entry matching `cardId` and
+   *  persists immediately; a no-op (no write) if the id isn't present. */
+  remove: (cardId: CardId) => void;
   setSaveStatus: (status: LoadoutSaveStatus) => void;
 }
 
-export const useLoadoutStore = create<LoadoutStore>((set) => ({
+export const useLoadoutStore = create<LoadoutStore>((set, get) => ({
   loadout: [...PHANTOM],
   hydrated: false,
   saveStatus: { state: 'idle' },
@@ -111,13 +123,97 @@ export const useLoadoutStore = create<LoadoutStore>((set) => ({
   loadPreset: (preset) => {
     const next = [...preset] as CardId[];
     const saved = saveLoadout(next);
-    set({
-      loadout: next,
-      saveStatus: saved ? { state: 'idle' } : {
-        state: 'storage-failed',
-        message: "Couldn't save changes in this browser. Your edits won't persist after you leave this page.",
-      },
-    });
+    set({ loadout: next, saveStatus: saved ? { state: 'idle' } : STORAGE_FAILED_STATUS });
+  },
+  add: (cardId) => {
+    const next = [...get().loadout, cardId];
+    const saved = saveLoadout(next);
+    set({ loadout: next, saveStatus: saved ? { state: 'idle' } : STORAGE_FAILED_STATUS });
+  },
+  remove: (cardId) => {
+    const current = get().loadout;
+    const index = current.indexOf(cardId);
+    if (index === -1) return; // nothing to remove — no write, no state change
+    const next = [...current];
+    next.splice(index, 1);
+    const saved = saveLoadout(next);
+    set({ loadout: next, saveStatus: saved ? { state: 'idle' } : STORAGE_FAILED_STATUS });
   },
   setSaveStatus: (status) => set({ saveStatus: status }),
 }));
+
+/**
+ * Everything the legality meter renders, derived from validateLoadout() and
+ * budgetPointsOf() — the engine's own answer, verbatim (02-RESEARCH.md
+ * Pitfall 2: a client-side calculator that agrees "almost always" is a save
+ * button enabled while the room rejects the payload). This function computes
+ * no rule of its own: `isLegal` is `violations.length === 0` and nothing
+ * more; `iconCounts`/`colorsPresent` are a display tally over the same cards
+ * validateLoadout() already resolved, never a second pass/fail judgment.
+ *
+ * `violatingCardIds` is attribution, not a second rules engine — it can only
+ * ever name a tile once the engine has already reported ICON_LIMIT or
+ * UNKNOWN_CARD for this exact draft; OVER_BUDGET and TOO_FEW_COLORS
+ * contribute no tiles, because neither violation has a single culprit card.
+ */
+export interface LoadoutLegality {
+  readonly violations: readonly LoadoutViolation[];
+  readonly budgetPoints: number;
+  readonly cardCount: number;
+  /** One entry per ICONS member, present even at zero. Includes passives —
+   *  they count against the per-icon maximum too. */
+  readonly iconCounts: Readonly<Record<IconType, number>>;
+  /** One entry per SECTORS member, present (as false) even when absent. */
+  readonly colorsPresent: Readonly<Record<Sector, boolean>>;
+  /** The exact tiles responsible for an ICON_LIMIT or UNKNOWN_CARD
+   *  violation the engine already reported. Empty whenever neither code is
+   *  present, regardless of what else is wrong with the draft. */
+  readonly violatingCardIds: readonly CardId[];
+  readonly isLegal: boolean;
+}
+
+function violatingCardIdsFor(loadout: readonly CardId[], violations: readonly LoadoutViolation[]): CardId[] {
+  const out: CardId[] = [];
+
+  if (violations.some((v) => v.code === 'ICON_LIMIT')) {
+    const seenPerIcon = new Map<IconType, number>();
+    for (const id of loadout) {
+      const card = tryGetCard(id);
+      if (!card) continue;
+      const seen = (seenPerIcon.get(card.icon) ?? 0) + 1;
+      seenPerIcon.set(card.icon, seen);
+      if (seen > DEFAULT_RULESET.maxPerIcon) out.push(id);
+    }
+  }
+
+  if (violations.some((v) => v.code === 'UNKNOWN_CARD')) {
+    for (const id of loadout) {
+      if (!tryGetCard(id)) out.push(id);
+    }
+  }
+
+  return out;
+}
+
+export function loadoutLegality(loadout: readonly CardId[]): LoadoutLegality {
+  const violations = validateLoadout(loadout, DEFAULT_RULESET);
+
+  const iconCounts = Object.fromEntries(ICONS.map((icon) => [icon, 0])) as Record<IconType, number>;
+  const colorsPresent = Object.fromEntries(SECTORS.map((sector) => [sector, false])) as Record<Sector, boolean>;
+  for (const id of loadout) {
+    const card = tryGetCard(id);
+    if (!card) continue;
+    iconCounts[card.icon] += 1;
+    colorsPresent[card.sector] = true;
+  }
+
+  return Object.freeze({
+    violations: Object.freeze(violations),
+    budgetPoints: budgetPointsOf(loadout),
+    cardCount: loadout.length,
+    iconCounts: Object.freeze(iconCounts),
+    colorsPresent: Object.freeze(colorsPresent),
+    violatingCardIds: Object.freeze(violatingCardIdsFor(loadout, violations)),
+    isLegal: violations.length === 0,
+  });
+}

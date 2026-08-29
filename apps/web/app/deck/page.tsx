@@ -1,5 +1,6 @@
 'use client';
 
+import { ALL_CARDS } from '@berlin/engine';
 import { useEffect } from 'react';
 import { Deckbuilder } from '../../components/deck/Deckbuilder.js';
 import { useLoadoutStore } from '../../lib/loadoutStore.js';
@@ -14,6 +15,8 @@ export default function DeckPage() {
   const hydrated = useLoadoutStore((s) => s.hydrated);
   const hydrate = useLoadoutStore((s) => s.hydrate);
   const loadPreset = useLoadoutStore((s) => s.loadPreset);
+  const add = useLoadoutStore((s) => s.add);
+  const remove = useLoadoutStore((s) => s.remove);
   const saveStatus = useLoadoutStore((s) => s.saveStatus);
 
   useEffect(() => {
@@ -21,12 +24,19 @@ export default function DeckPage() {
   }, [hydrate]);
 
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-8 px-6 py-16">
+    <main className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-16">
       <h1 className="text-[28px] font-semibold leading-[1.2]">Build Loadout</h1>
       {!hydrated ? (
         <p className="text-sm">Loading…</p>
       ) : (
-        <Deckbuilder loadout={loadout} onLoadPreset={loadPreset} saveStatus={saveStatus} />
+        <Deckbuilder
+          loadout={loadout}
+          cards={ALL_CARDS}
+          onAdd={add}
+          onRemove={remove}
+          onLoadPreset={loadPreset}
+          saveStatus={saveStatus}
+        />
       )}
     </main>
   );
