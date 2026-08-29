@@ -62,7 +62,7 @@ function CardTile({ card, inLoadout, violating, onAdd, onRemove }: CardTileProps
           {card.consumable ? 'Consumable' : 'Permanent'}
         </span>
       )}
-      {violating && <p className="text-sm text-[#dc2626]">Over the icon limit</p>}
+      {violating && <p className="text-sm text-[#dc2626]">Over the {card.icon} limit</p>}
       <Button
         variant={inLoadout ? 'destructive' : 'primary'}
         onClick={() => (inLoadout ? onRemove(card.id) : onAdd(card.id))}
