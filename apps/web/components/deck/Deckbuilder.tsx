@@ -2,11 +2,15 @@
 
 import { getCard } from '@berlin/engine';
 import type { CardId, Loadout, Sector } from '@berlin/shared';
+import type { LoadoutSaveStatus } from '../../lib/loadoutStore.js';
 import { PresetPicker } from './PresetPicker.js';
 
 export interface DeckbuilderProps {
   loadout: readonly CardId[];
   onLoadPreset: (preset: Loadout) => void;
+  /** Optional — omitted callers (none currently) simply never show the
+   *  storage-failure banner below. */
+  saveStatus?: LoadoutSaveStatus;
 }
 
 /** 02-UI-SPEC.md's fixed four-color palette — a sector swatch is always
@@ -26,10 +30,16 @@ const SECTOR_SWATCH: Record<Sector, string> = {
  * ten-card loadout; card grid, live legality meter, and add/remove are
  * Plans 02-02/02-03/02-04.
  */
-export function Deckbuilder({ loadout, onLoadPreset }: DeckbuilderProps) {
+export function Deckbuilder({ loadout, onLoadPreset, saveStatus }: DeckbuilderProps) {
   return (
     <div className="flex flex-col gap-6">
       <PresetPicker onLoadPreset={onLoadPreset} />
+
+      {saveStatus?.state === 'storage-failed' && (
+        <p className="rounded border border-[#dc2626] bg-[#f1f5f9] px-4 py-2 text-sm text-[#dc2626]">
+          {"Couldn't save changes in this browser. Your edits won't persist after you leave this page."}
+        </p>
+      )}
 
       <div className="flex flex-col gap-2">
         <h2 className="text-[20px] font-semibold leading-[1.2]">Your loadout</h2>

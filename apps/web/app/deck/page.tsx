@@ -14,6 +14,7 @@ export default function DeckPage() {
   const hydrated = useLoadoutStore((s) => s.hydrated);
   const hydrate = useLoadoutStore((s) => s.hydrate);
   const loadPreset = useLoadoutStore((s) => s.loadPreset);
+  const saveStatus = useLoadoutStore((s) => s.saveStatus);
 
   useEffect(() => {
     hydrate();
@@ -25,7 +26,7 @@ export default function DeckPage() {
       {!hydrated ? (
         <p className="text-sm">Loading…</p>
       ) : (
-        <Deckbuilder loadout={loadout} onLoadPreset={loadPreset} />
+        <Deckbuilder loadout={loadout} onLoadPreset={loadPreset} saveStatus={saveStatus} />
       )}
     </main>
   );

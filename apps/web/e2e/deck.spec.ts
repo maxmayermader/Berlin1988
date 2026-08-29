@@ -13,6 +13,7 @@ import { expect, test } from '@playwright/test';
  */
 const HUNTER_ONLY_CARD_ID = 'st_red';
 const PHANTOM_ONLY_CARD_ID = 'dc_green';
+const LOADOUT_STORAGE_KEY = 'berlin1988.loadout';
 
 test.describe('Deckbuilder — reachability, preset load, and persistence', () => {
   test('home link -> ten cards -> load Hunter -> persists across a refresh', async ({ page }) => {
@@ -78,5 +79,37 @@ test.describe('Deckbuilder — reachability, preset load, and persistence', () =
         { timeout: 10_000 },
       )
       .toBe(true);
+  });
+
+  test('a loadout survives a fresh browser session with no login (DECK-04)', async ({ browser }) => {
+    const contextA = await browser.newContext();
+    const pageA = await contextA.newPage();
+    pageA.on('dialog', (dialog) => dialog.accept());
+
+    await pageA.goto('/');
+    await pageA.getByRole('link', { name: 'Build Loadout' }).click();
+    await pageA.waitForURL('/deck');
+    await pageA.getByRole('button', { name: 'Load Hunter' }).click();
+    await expect(pageA.locator(`[data-card-id="${HUNTER_ONLY_CARD_ID}"]`)).toBeVisible();
+
+    const stored = await pageA.evaluate((key) => window.localStorage.getItem(key), LOADOUT_STORAGE_KEY);
+    expect(stored).not.toBeNull();
+
+    // A brand-new context has its own storage partition — no cookies, no
+    // session, nothing carried over except what this addInitScript seeds.
+    const contextB = await browser.newContext();
+    await contextB.addInitScript(
+      ([key, value]) => {
+        window.localStorage.setItem(key, value as string);
+      },
+      [LOADOUT_STORAGE_KEY, stored] as const,
+    );
+    const pageB = await contextB.newPage();
+    await pageB.goto('/deck');
+
+    await expect(pageB.locator(`[data-card-id="${HUNTER_ONLY_CARD_ID}"]`)).toBeVisible();
+
+    await contextA.close();
+    await contextB.close();
   });
 });
