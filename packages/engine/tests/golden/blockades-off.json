@@ -1,0 +1,148 @@
+{
+  "round": 15,
+  "phase": "FINISHED",
+  "rng": {
+    "a": 178741314,
+    "b": 925396280,
+    "c": -323244146,
+    "d": 1006654917
+  },
+  "outcome": {
+    "reason": "ROUND_LIMIT",
+    "winners": [
+      "p2"
+    ]
+  },
+  "players": [
+    {
+      "id": "p1",
+      "intel": 2,
+      "safehouse": null,
+      "eliminated": false,
+      "burnsInflicted": 0,
+      "dossiersExtracted": 0,
+      "passives": [
+        "ps_ghost",
+        "ps_tunnel_rat"
+      ],
+      "agents": [
+        {
+          "id": "p1:a1",
+          "node": "tempelhof",
+          "alive": false,
+          "d": 0
+        },
+        {
+          "id": "p1:a2",
+          "node": "checkpoint_charlie",
+          "alive": true,
+          "d": 2
+        }
+      ]
+    },
+    {
+      "id": "p2",
+      "intel": 5,
+      "safehouse": "checkpoint_charlie",
+      "eliminated": false,
+      "burnsInflicted": 1,
+      "dossiersExtracted": 0,
+      "passives": [
+        "ps_k9"
+      ],
+      "agents": [
+        {
+          "id": "p2:a1",
+          "node": "alexanderplatz",
+          "alive": true,
+          "d": 2
+        },
+        {
+          "id": "p2:a2",
+          "node": "bernauer",
+          "alive": true,
+          "d": 3
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    [
+      "alexanderplatz",
+      null,
+      0,
+      null
+    ],
+    [
+      "bernauer",
+      null,
+      1,
+      null
+    ],
+    [
+      "checkpoint_charlie",
+      null,
+      0,
+      null
+    ],
+    [
+      "friedrichstrasse",
+      null,
+      1,
+      null
+    ],
+    [
+      "gesundbrunnen",
+      null,
+      2,
+      null
+    ],
+    [
+      "glienicke_bridge",
+      null,
+      0,
+      null
+    ],
+    [
+      "karl_marx_allee",
+      null,
+      0,
+      null
+    ],
+    [
+      "kreuzberg",
+      null,
+      0,
+      null
+    ],
+    [
+      "kurfurstendamm",
+      null,
+      0,
+      null
+    ],
+    [
+      "prenzlauer_berg",
+      null,
+      1,
+      null
+    ],
+    [
+      "tempelhof",
+      null,
+      0,
+      null
+    ],
+    [
+      "tiergarten",
+      null,
+      0,
+      null
+    ]
+  ],
+  "traps": [],
+  "decoys": [
+    "p1@checkpoint_charlie",
+    "p2@kreuzberg"
+  ]
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.next/
+.turbo/
+coverage/
+.vercel/
+.partykit/
+.DS_Store
+.vscode/
+.env
+.env.local
+next-env.d.ts
+test-results/
+playwright-report/
+blob-report/

@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist",
+    "paths": {
+      "@berlin/shared": ["../shared/src/index.ts"],
+      "@berlin/engine": ["../engine/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "sim/**/*.ts", "tests/**/*.ts"],
+  "references": [{ "path": "../shared" }, { "path": "../engine" }]
+}

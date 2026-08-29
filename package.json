@@ -1,0 +1,22 @@
+{
+  "name": "berlin1988",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "typecheck": "tsc --build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "sim": "tsx packages/ai/sim/run.ts",
+    "dev": "pnpm --parallel --filter web --filter party dev",
+    "measure:timing": "tsx apps/party/scripts/measure-4p-timing.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

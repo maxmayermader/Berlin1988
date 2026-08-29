@@ -1,3 +1,13 @@
+> **⚠️ SUPERSEDED — historical draft, do not build from this file.**
+> The current design is `docs/GAME_DESIGN.md` (v3). It keeps this draft's core — Berlin 1988,
+> 1–4 players, 6 icons × 4 colors, deck customization — and changes the following deliberately:
+> simultaneous secret orders instead of sequential turns; 1–2 agents at 2 actions each, set by
+> the host; reusable active abilities gated by Intel and cooldowns instead of a shuffled draw,
+> plus a new class of passive cards; the live 3–5 second reaction window cut entirely; ambush
+> traps and one hidden safehouse per player; graded strike noise and purchasable silencers;
+> late-game blockades that seal nodes; and permanent death with no respawn. Reasoning for each
+> is in the new doc. Kept here for history.
+
  I will just do two spies which can be played with 1-4 players. users can also configure card deck with additional abilties. there will be 6 different icons with 4 different colors. Name will be Berlin 1988.
 
 Berlin 1988 takes the tense, hidden-movement core of Two Spies and expands it into a customizable 1–4 player Cold War thriller set across the divided sectors of East and West Berlin.

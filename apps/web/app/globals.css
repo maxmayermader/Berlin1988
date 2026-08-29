@@ -1,0 +1,35 @@
+@import 'tailwindcss';
+
+/**
+ * Design tokens from .planning/phases/01-playable-skeleton/01-UI-SPEC.md.
+ * D-10: "clean but plain" — no theme, no illustration, two weights only.
+ *
+ * Spacing scale (4/8/16/24/32/48/64) is deliberately NOT declared as custom
+ * `--spacing-*` theme keys here: Tailwind v4 reserves that exact namespace
+ * (`--spacing-xs` .. `--spacing-3xl`) internally for its own named width/
+ * max-width scale (e.g. `max-w-xl` resolves through `--spacing-xl`).
+ * Overriding those names silently corrupts unrelated utilities — `max-w-xl`
+ * was resolving to 32px instead of ~36rem before this comment was written.
+ * The UI-SPEC's 4px-multiple scale already IS Tailwind's default numeric
+ * spacing scale (`--spacing: 0.25rem`), so components use it directly via
+ * numeric utilities (`gap-8`, `px-6`, `py-16`, ...) with no custom theme
+ * needed. Colors and font weights below use names outside Tailwind's own
+ * default palettes, so they're safe to declare as new theme keys.
+ */
+@theme {
+  --font-weight-body: 400;
+  --font-weight-heading: 600;
+
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-accent: #2563eb;
+  --color-destructive: #dc2626;
+}
+
+body {
+  background: var(--color-surface);
+  color: #0f172a;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}

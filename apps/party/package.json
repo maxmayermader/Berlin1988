@@ -1,0 +1,21 @@
+{
+  "name": "party",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "partykit dev",
+    "deploy": "partykit deploy"
+  },
+  "dependencies": {
+    "@berlin/ai": "workspace:*",
+    "@berlin/engine": "workspace:*",
+    "@berlin/shared": "workspace:*",
+    "nanoid": "6.0.1",
+    "partykit": "0.0.115",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20240718.0"
+  }
+}
