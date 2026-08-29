@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: Deckbuilder & Persistent Loadouts
 status: in_progress
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-08-29T20:43:17.000Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-08-29T21:22:00.000Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 02 Plan 01 executed — SUBMIT_LOADOUT wire pipe, persisted loadoutStore, /deck route, per-seat loadouts at match start
+last_activity_desc: Phase 02 Plan 02 executed — full 34-card grid, live legality meter, and per-tile violation highlighting on top of Plan 01's tracer
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -28,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-08-18)
 ## Current Position
 
 Phase: 02 (Deckbuilder & Persistent Loadouts) — IN PROGRESS
-Plan: 1 of 4 complete (02-01-PLAN.md, the tracer: /deck, SUBMIT_LOADOUT pipe, per-seat loadouts at match start). Waves 2 (02-02, 02-03) and 3 (02-04) pending.
+Plan: 02-01 and 02-02 complete (tracer + full card grid/live legality meter). Wave 2 sibling 02-03 (legality/adversarial tests) runs in parallel; Wave 3 (02-04, in-lobby editor) pending both.
 Status: in_progress
-Last activity: 2026-08-29 — 02-01-PLAN.md executed: wire protocol, room-side loadout state/handler/routing, per-seat startMatch dealing, persisted loadoutStore, /deck route, home + lobby wiring. Room-side and browser-side tracer tests both green.
+Last activity: 2026-08-29 — 02-02-PLAN.md executed: CardGrid (34 cards, seven sections), LegalityMeter (live count/BP/icon-pips/color-checklist/violations), loadoutStore's add/remove + loadoutLegality()/violatingCardIds. Full unit + e2e suites green.
 
 Phase 1 status (unchanged by this plan): DEFERRED (human_needed, 6/7 must-haves; all 5 roadmap Success Criteria verified). Task 3's deployed-hibernation + human-playtest checkpoint remains pending UAT, not blocking.
 
-Progress: [███████░░░] 70% (7/10 plans across the v1.0 milestone so far — updated after each plan completion)
+Progress: [████████░░] 80% (8/10 plans across the v1.0 milestone so far — updated after each plan completion)
 
 ## Performance Metrics
 
@@ -67,6 +67,7 @@ Progress: [███████░░░] 70% (7/10 plans across the v1.0 miles
 | Phase 01 P05 | 55min | 3 tasks | 15 files |
 | Phase 01 P06 | 45min | 2 tasks | 18 files |
 | Phase 02 P01 | 55min | 2 tasks | 18 files |
+| Phase 02 P02 | 35min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,9 @@ Recent decisions affecting current work:
 - [Phase 02-01]: RoomSeat.loadout is server-only and never enters toSnapshot()/LobbySeat — a loadout is hidden pre-match information under docs/GAME_DESIGN.md §6.3, not public lobby state.
 - [Phase 02-01]: startMatch re-validates a seat's stored loadout against validateLoadout() a second time (defence in depth beyond the handler's own check) and falls back to PHANTOM if it no longer validates; bot seats are never routed through the human SUBMIT_LOADOUT path and keep createMatch's own per-faction starter loadout.
 - [Phase 02-01]: apps/web/lib/loadoutStore.ts mirrors identity.ts's SSR-safe hydration pattern exactly — hydrate() is called from a mount effect, never inside the Zustand create() initializer, to avoid a Next.js server-render-time localStorage read.
+- [Phase 02-02]: loadoutLegality() is a pure exported function (never store state or a hook) that calls validateLoadout()/budgetPointsOf() and computes no rule of its own — recomputed every render, mirroring how OrderComposer.tsx calls legalOrders() live rather than caching a derived set.
+- [Phase 02-02]: violatingCardIds is attribution, not a second rules engine — gated on the engine having already reported ICON_LIMIT/UNKNOWN_CARD for the exact draft, so it can never flag a tile in a draft validateLoadout() considers legal.
+- [Phase 02-02]: No sector in the current 34-card pool reaches ten cards (richest is nine) — a same-sector legality test fixture must pad to size with a repeated card id, which validateLoadout() tolerates since it has no duplicate-id rule.
 
 ### Pending Todos
 
@@ -128,6 +132,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-29T20:43:17.000Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-08-29T21:22:00.000Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
