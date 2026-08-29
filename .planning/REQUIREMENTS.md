@@ -17,10 +17,10 @@ Requirements for initial release (the UI/realtime milestone). Each maps to roadm
 ### Deckbuilder
 
 - [ ] **DECK-01**: User can build a 10-card loadout choosing from all available cards
-- [ ] **DECK-02**: Deckbuilder enforces loadout legality live via a persistent visual meter (BP used/26, icon-count pips, color-requirement checklist) — not just pass/fail at submit time
+- [x] **DECK-02**: Deckbuilder enforces loadout legality live via a persistent visual meter (BP used/26, icon-count pips, color-requirement checklist) — not just pass/fail at submit time
 - [x] **DECK-03**: User can load one of the four starter preset loadouts (Phantom, Hunter, Oligarch, Spider) with one click
 - [x] **DECK-04**: User's saved loadouts persist in browser local storage across sessions (no login)
-- [ ] **DECK-05**: User can edit their loadout ("class") from within the lobby, using the same deckbuilder component as the home page
+- [x] **DECK-05**: User can edit their loadout ("class") from within the lobby, using the same deckbuilder component as the home page
 
 ### Lobby
 
@@ -107,10 +107,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MATCH-08 | Phase 1 | Complete |
 | HOME-04 | Phase 2 | Complete |
 | DECK-01 | Phase 2 | Pending |
-| DECK-02 | Phase 2 | Pending |
+| DECK-02 | Phase 2 | Complete |
 | DECK-03 | Phase 2 | Complete |
 | DECK-04 | Phase 2 | Complete |
-| DECK-05 | Phase 2 | Pending |
+| DECK-05 | Phase 2 | Complete |
 | HOME-03 | Phase 3 | Pending |
 | LOBBY-01 | Phase 3 | Pending |
 | LOBBY-02 | Phase 3 | Pending |
