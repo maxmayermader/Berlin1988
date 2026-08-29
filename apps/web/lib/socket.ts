@@ -1,9 +1,10 @@
 'use client';
 
 import { clientMessageSchema, serverMessageSchema } from '@berlin/shared';
-import type { Action, ClientMessage, ServerMessage } from '@berlin/shared';
+import type { Action, CardId, ClientMessage, ServerMessage } from '@berlin/shared';
 import { PartySocket } from 'partysocket';
 import { usePartySocket } from 'partysocket/react';
+import { useLoadoutStore } from './loadoutStore.js';
 import { useMatchStore } from './matchStore.js';
 import { useUiStore } from './uiStore.js';
 
@@ -155,6 +156,10 @@ export function useRoomSocket(
           .setOrderStatus(message.agentId, { state: 'rejected', message: message.message });
       } else if (message.type === 'CLOCK') {
         useMatchStore.getState().setClock(message.deadlineAt);
+      } else if (message.type === 'LOADOUT_ACK') {
+        useLoadoutStore.getState().setSaveStatus({ state: 'accepted' });
+      } else if (message.type === 'LOADOUT_REJECTED') {
+        useLoadoutStore.getState().setSaveStatus({ state: 'rejected', message: message.message });
       }
 
       onMessage(message);
@@ -185,5 +190,17 @@ export function submitOrder(
     ...(buySilencers !== undefined ? { buySilencers } : {}),
   };
   useMatchStore.getState().setOrderStatus(agentId, { state: 'pending' });
+  socket.send(JSON.stringify(clientMessageSchema.parse(message)));
+}
+
+/**
+ * Submits the player's current loadout. Built exactly like submitOrder():
+ * Zod-parsed before it reaches the wire, and the store is optimistically
+ * marked 'pending' — the room's LOADOUT_ACK/LOADOUT_REJECTED reply is what
+ * actually reconciles the status (rule 4: optimistic preview is advisory).
+ */
+export function submitLoadout(socket: PartySocket, cards: readonly CardId[]): void {
+  const message: ClientMessage = { type: 'SUBMIT_LOADOUT', cards: [...cards] };
+  useLoadoutStore.getState().setSaveStatus({ state: 'pending' });
   socket.send(JSON.stringify(clientMessageSchema.parse(message)));
 }

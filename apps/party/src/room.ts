@@ -10,6 +10,7 @@ import {
   handleJoin,
   handleSetCodename,
   handleSetReady,
+  handleSubmitLoadout,
   handleSubmitOrder,
 } from './handlers.js';
 import { newJoinCode } from './joinCode.js';
@@ -141,6 +142,15 @@ export default class MatchRoom implements Party.Server {
         await this.syncAlarm(next);
         sendLobby(this.room, next);
       }
+      return;
+    }
+
+    if (message.type === 'SUBMIT_LOADOUT') {
+      const result = handleSubmitLoadout(this.state, message, sender.id);
+      await this.persist(result.state);
+      if (result.toSender) sendTo(sender, result.toSender);
+      // No sendLobby here — a loadout write changes nothing in the public
+      // snapshot (T-2-03), and no syncAlarm either — no timer changed.
       return;
     }
 
