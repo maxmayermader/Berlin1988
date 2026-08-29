@@ -208,7 +208,7 @@ export function loadoutLegality(loadout: readonly CardId[]): LoadoutLegality {
   }
 
   return Object.freeze({
-    violations,
+    violations: Object.freeze(violations),
     budgetPoints: budgetPointsOf(loadout),
     cardCount: loadout.length,
     iconCounts: Object.freeze(iconCounts),
