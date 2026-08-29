@@ -2,7 +2,7 @@ import { ALL_CARDS, DEFAULT_RULESET, HUNTER, OLIGARCH, PHANTOM, SPIDER, validate
 import { cardId } from '@berlin/shared';
 import type { CardId, Loadout, LoadoutViolation, Sector, ServerMessage } from '@berlin/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTestRoom, playMatch } from './helpers.js';
+import { allFrames, createTestRoom, playMatch } from './helpers.js';
 
 /**
  * The room half of the phase's tracer proof: a submitted loadout is what
@@ -39,6 +39,15 @@ function last<T extends ServerMessage['type']>(
     if (message?.type === type) return message as Extract<ServerMessage, { type: T }>;
   }
   return undefined;
+}
+
+/** Stringifies a frame for leak-scanning with the always-public map topology
+ *  removed first — mirrors fog-wire.test.ts/round.test.ts's own copy of this
+ *  helper. `view.map` (node ids, names, edges) is sent in full to every
+ *  connection regardless of any order, so leaving it in would risk a
+ *  coincidental substring match against a card id. */
+function stringifyWithoutMap(frame: ServerMessage): string {
+  return JSON.stringify(frame, (key, value) => (key === 'map' ? undefined : value));
 }
 
 /** Task 2's five violation fixtures, each built by filtering ALL_CARDS
@@ -415,5 +424,115 @@ describe('apps/party SUBMIT_LOADOUT phase guards and violation handling (Task 2)
 
     const seat = room.roomState()!.seats.find((s) => s.codename === 'Vogel')!;
     expect(seat.loadout).toEqual([...HUNTER]);
+  });
+});
+
+/**
+ * Task 3: match start deals the right deck to every seat, and tells no one
+ * else. The bot-roster and startMatch-idempotence cases already live in
+ * apps/party/tests/botfill.test.ts (Plan 02-01/02-03) — this describe block
+ * covers the multi-human match-start cases and the fog/structural proof that
+ * belong at the room-integration level.
+ */
+describe('apps/party startMatch dealing per-seat loadouts (Task 3)', () => {
+  it('a four-human room deals each seat exactly the distinct legal deck it submitted', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel'); // seat 0, RED
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    const code = last(host.received, 'JOINED')!.code;
+
+    const guests = [];
+    for (const codename of ['Katja', 'Marek', 'Halloran']) {
+      const guest = room.connect(codename);
+      await guest.send({ type: 'JOIN', code, codename });
+      guests.push(guest);
+    }
+    const [katja, marek, halloran] = guests;
+
+    const decks: Record<string, Loadout> = {
+      Vogel: HUNTER,
+      Katja: OLIGARCH,
+      Marek: SPIDER,
+      Halloran: PHANTOM,
+    };
+
+    for (const conn of [host, ...guests]) {
+      const codename = conn === host ? 'Vogel' : conn === katja ? 'Katja' : conn === marek ? 'Marek' : 'Halloran';
+      await conn.send({ type: 'SUBMIT_LOADOUT', cards: [...decks[codename]!] });
+    }
+    for (const conn of [host, ...guests]) {
+      await conn.send({ type: 'SET_READY', ready: true });
+    }
+
+    await room.triggerAlarm();
+
+    const state = room.roomState();
+    expect(state!.phase).toBe('IN_GAME');
+    expect(state!.seats.filter((s) => s.kind === 'HUMAN')).toHaveLength(4);
+
+    const seenLoadouts = new Set<string>();
+    for (const seat of state!.seats) {
+      const player = state!.gameState!.players[seat.playerId!]!;
+      expect(player.loadout).toEqual([...decks[seat.codename!]!]);
+      seenLoadouts.add(JSON.stringify(player.loadout));
+    }
+    // Four humans, four distinct submitted decks — no two seats confused.
+    expect(seenLoadouts.size).toBe(4);
+  });
+
+  it('no frame a non-owning connection received across the whole lobby-to-match-start sequence contains the owner\'s card ids, and every snapshot seat has exactly six keys', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    const code = last(host.received, 'JOINED')!.code;
+
+    const guest = room.connect('Katja');
+    await guest.send({ type: 'JOIN', code, codename: 'Katja' });
+
+    // PHANTOM and OLIGARCH share no card ids — the only pair among the four
+    // starter presets with zero overlap — so a card id found in the other
+    // connection's frames can only mean a leak, never a coincidence of both
+    // seats legitimately holding the same card.
+    await host.send({ type: 'SUBMIT_LOADOUT', cards: [...PHANTOM] });
+    await guest.send({ type: 'SUBMIT_LOADOUT', cards: [...OLIGARCH] });
+    await host.send({ type: 'SET_READY', ready: true });
+    await guest.send({ type: 'SET_READY', ready: true });
+    await room.triggerAlarm();
+
+    // Read the expected secrets from the room's own live state, never a
+    // fixture — mirrors fog-wire.test.ts's approach.
+    const hostCardIds = room.roomState()!.seats.find((s) => s.codename === 'Vogel')!.loadout!;
+    const guestCardIds = room.roomState()!.seats.find((s) => s.codename === 'Katja')!.loadout!;
+
+    const guestFrames = allFrames(guest).map(stringifyWithoutMap).join('␞');
+    for (const id of hostCardIds) {
+      expect(guestFrames, `host card ${id} leaked to the guest`).not.toContain(id as unknown as string);
+    }
+    const hostFrames = allFrames(host).map(stringifyWithoutMap).join('␞');
+    for (const id of guestCardIds) {
+      expect(hostFrames, `guest card ${id} leaked to the host`).not.toContain(id as unknown as string);
+    }
+
+    const snapshot = last(host.received, 'ROOM_STATE')!.snapshot;
+    expect(snapshot.seats.length).toBeGreaterThan(0);
+    for (const seat of snapshot.seats) {
+      expect(Object.keys(seat)).toHaveLength(6);
+    }
+  });
+
+  it('a deck submitted after startMatch has run does not change any player\'s loadout in the running match', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    await host.send({ type: 'SUBMIT_LOADOUT', cards: [...HUNTER] });
+    await host.send({ type: 'SET_READY', ready: true });
+    await room.triggerAlarm();
+
+    const hostPlayerId = room.roomState()!.seats.find((s) => s.codename === 'Vogel')!.playerId!;
+    expect(room.roomState()!.gameState!.players[hostPlayerId]!.loadout).toEqual([...HUNTER]);
+
+    await host.send({ type: 'SUBMIT_LOADOUT', cards: [...OLIGARCH] });
+
+    expect(room.roomState()!.gameState!.players[hostPlayerId]!.loadout).toEqual([...HUNTER]);
   });
 });
