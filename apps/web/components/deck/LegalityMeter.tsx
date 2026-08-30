@@ -1,5 +1,6 @@
 'use client';
 
+import { DEFAULT_RULESET } from '@berlin/engine';
 import { ICONS, SECTORS } from '@berlin/shared';
 import type { LoadoutLegality } from '../../lib/loadoutStore.js';
 
@@ -7,9 +8,9 @@ export interface LegalityMeterProps {
   legality: LoadoutLegality;
 }
 
-const LOADOUT_SIZE = 10;
-const BUDGET_LIMIT = 26;
-const PER_ICON_LIMIT = 3;
+const LOADOUT_SIZE = DEFAULT_RULESET.loadoutSize;
+const BUDGET_LIMIT = DEFAULT_RULESET.maxBudgetPoints;
+const PER_ICON_LIMIT = DEFAULT_RULESET.maxPerIcon;
 
 /**
  * The persistent live readout (DECK-02). Everything here is a number or a
@@ -18,11 +19,10 @@ const PER_ICON_LIMIT = 3;
  * rendered verbatim; re-deriving copy from `violation.code` would fork the
  * wording from the engine's own text (02-RESEARCH.md Pitfall 2).
  *
- * The three constants above (10/26/3) are display-only fallbacks matching
- * DEFAULT_RULESET's current values, used solely to color the BP bar and
- * label the icon pips — they decide no legality outcome; `legality.isLegal`
- * and `legality.violations` (the engine's own answer) are what the panel
- * actually reports.
+ * The three constants above are read from DEFAULT_RULESET and used solely
+ * to color the BP bar and label the icon pips — they decide no legality
+ * outcome; `legality.isLegal` and `legality.violations` (the engine's own
+ * answer) are what the panel actually reports.
  */
 export function LegalityMeter({ legality }: LegalityMeterProps) {
   const { violations, budgetPoints, cardCount, iconCounts, colorsPresent, isLegal } = legality;

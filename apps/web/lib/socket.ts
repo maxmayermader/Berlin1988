@@ -204,6 +204,14 @@ export function submitOrder(
  */
 export function submitLoadout(socket: PartySocket, cards: readonly CardId[]): void {
   const message: ClientMessage = { type: 'SUBMIT_LOADOUT', cards: [...cards] };
+  const parsed = clientMessageSchema.safeParse(message);
+  if (!parsed.success) {
+    useLoadoutStore.getState().setSaveStatus({
+      state: 'rejected',
+      message: 'Your stored loadout is corrupted and could not be sent. Try loading a preset.',
+    });
+    return;
+  }
   useLoadoutStore.getState().setSaveStatus({ state: 'pending' });
-  socket.send(JSON.stringify(clientMessageSchema.parse(message)));
+  socket.send(JSON.stringify(parsed.data));
 }
