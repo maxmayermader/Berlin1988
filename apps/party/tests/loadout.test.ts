@@ -536,3 +536,120 @@ describe('apps/party startMatch dealing per-seat loadouts (Task 3)', () => {
     expect(room.roomState()!.gameState!.players[hostPlayerId]!.loadout).toEqual([...HUNTER]);
   });
 });
+
+/**
+ * Plan 02-04, Task 2: the literal D-05 flow this plan's in-lobby editor
+ * drives — ready, open the editor (SET_READY false), edit and save
+ * (SUBMIT_LOADOUT), ready again — proven against the room's own router the
+ * same way every other case in this file is, never against setLoadout or
+ * setReady directly.
+ */
+describe('apps/party the in-lobby editor flow: ready, edit, save, ready again (Plan 02-04, Task 2)', () => {
+  it('the literal D-05 sequence deals the seat its submitted deck at match start', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+
+    await host.send({ type: 'SET_READY', ready: true });
+    await host.send({ type: 'SET_READY', ready: false }); // opening the editor (D-05)
+    await host.send({ type: 'SUBMIT_LOADOUT', cards: [...HUNTER] }); // save
+    await host.send({ type: 'SET_READY', ready: true }); // re-confirm
+
+    await room.triggerAlarm();
+
+    const state = room.roomState();
+    expect(state!.phase).toBe('IN_GAME');
+    const hostPlayerId = state!.seats.find((s) => s.codename === 'Vogel')!.playerId!;
+    expect(state!.gameState!.players[hostPlayerId]!.loadout).toEqual([...HUNTER]);
+  });
+
+  it('a submission that arrives while the seat is already ready (no editor open) is still accepted and dealt', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    await host.send({ type: 'SET_READY', ready: true });
+
+    await host.send({ type: 'SUBMIT_LOADOUT', cards: [...OLIGARCH] });
+    expect(host.last()?.type).toBe('LOADOUT_ACK');
+
+    await room.triggerAlarm();
+
+    const state = room.roomState();
+    const hostPlayerId = state!.seats.find((s) => s.codename === 'Vogel')!.playerId!;
+    expect(state!.gameState!.players[hostPlayerId]!.loadout).toEqual([...OLIGARCH]);
+  });
+
+  it('a seat that opens the editor and never saves plays the deck it last successfully submitted, not a browser-only draft the room was never told about', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+
+    // The seat's one and only successful submission.
+    await host.send({ type: 'SUBMIT_LOADOUT', cards: [...HUNTER] });
+
+    // "Opens the editor and never saves": ready clears, then re-readies
+    // with no further SUBMIT_LOADOUT in between — the room was never told
+    // about whatever the player may have clicked in the meantime.
+    await host.send({ type: 'SET_READY', ready: true });
+    await host.send({ type: 'SET_READY', ready: false });
+    await host.send({ type: 'SET_READY', ready: true });
+
+    await room.triggerAlarm();
+
+    const state = room.roomState();
+    const hostPlayerId = state!.seats.find((s) => s.codename === 'Vogel')!.playerId!;
+    expect(state!.gameState!.players[hostPlayerId]!.loadout).toEqual([...HUNTER]);
+  });
+
+  it('opening the editor mid-countdown drops a two-seat room below the ready threshold and stops it', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    const code = last(host.received, 'JOINED')!.code;
+
+    const guest = room.connect('Katja');
+    await guest.send({ type: 'JOIN', code, codename: 'Katja' });
+
+    // 2 filled, 1 ready is exactly the inclusive 50% threshold — the
+    // countdown is already running on the host's ready-up alone, the same
+    // fixture apps/party/tests/lobby.test.ts uses.
+    await host.send({ type: 'SET_READY', ready: true });
+    expect(room.roomState()!.startsAt).not.toBeNull();
+
+    // The host opens the in-lobby editor: D-05's ready clear drops the
+    // ratio to 0/2, below the threshold, and the countdown stops.
+    await host.send({ type: 'SET_READY', ready: false });
+    expect(room.roomState()!.startsAt).toBeNull();
+  });
+
+  it('two seats each opening, editing, and saving in the same window end up with their own distinct deck; neither clobbers the other', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    const code = last(host.received, 'JOINED')!.code;
+
+    const guest = room.connect('Katja');
+    await guest.send({ type: 'JOIN', code, codename: 'Katja' });
+
+    await host.send({ type: 'SET_READY', ready: true });
+    await guest.send({ type: 'SET_READY', ready: true });
+
+    // Both open their editors (D-05) in the same window...
+    await host.send({ type: 'SET_READY', ready: false });
+    await guest.send({ type: 'SET_READY', ready: false });
+    // ...edit and save distinct decks, interleaved...
+    await host.send({ type: 'SUBMIT_LOADOUT', cards: [...HUNTER] });
+    await guest.send({ type: 'SUBMIT_LOADOUT', cards: [...SPIDER] });
+    // ...and re-confirm.
+    await host.send({ type: 'SET_READY', ready: true });
+    await guest.send({ type: 'SET_READY', ready: true });
+
+    await room.triggerAlarm();
+
+    const state = room.roomState();
+    const hostPlayerId = state!.seats.find((s) => s.codename === 'Vogel')!.playerId!;
+    const guestPlayerId = state!.seats.find((s) => s.codename === 'Katja')!.playerId!;
+    expect(state!.gameState!.players[hostPlayerId]!.loadout).toEqual([...HUNTER]);
+    expect(state!.gameState!.players[guestPlayerId]!.loadout).toEqual([...SPIDER]);
+  });
+});

@@ -85,4 +85,30 @@ test.describe('Lobby — in-lobby deckbuilder (DECK-05, D-05)', () => {
     await contextA.close();
     await contextB.close();
   });
+
+  test('Save Loadout is disabled while the draft is short of ten cards, and enabled once legal again', async ({
+    page,
+  }) => {
+    page.on('dialog', (dialog) => dialog.accept());
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Create Game' }).click();
+    await page.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
+
+    await page.getByRole('button', { name: 'Edit Loadout' }).click();
+    await page.getByRole('button', { name: 'Load Hunter' }).click();
+
+    const saveButton = page.getByRole('button', { name: 'Save Loadout' });
+    await expect(saveButton).toBeEnabled();
+
+    // Remove one of Hunter's ten cards (via the grid tile, not the
+    // button-less "your loadout" summary) to drop the draft to nine —
+    // a player's own mistake, not a hand-constructed pathological deck.
+    const target = page.locator('[data-card-id="ag_red"]').filter({ has: page.getByRole('button') });
+    await target.getByRole('button', { name: 'Remove' }).click();
+    await expect(saveButton).toBeDisabled();
+
+    await target.getByRole('button', { name: 'Add' }).click();
+    await expect(saveButton).toBeEnabled();
+  });
 });

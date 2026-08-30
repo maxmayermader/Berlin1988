@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import {
   loadLoadout,
   loadoutLegality,
+  loadoutsDiverge,
   LOADOUT_STORAGE_KEY,
   saveLoadout,
   useLoadoutStore,
@@ -466,5 +467,86 @@ describe('loadoutLegality.violatingCardIds', () => {
       const shouldHaveAttribution = codes.has('ICON_LIMIT') || codes.has('UNKNOWN_CARD');
       expect(legality.violatingCardIds.length > 0).toBe(shouldHaveAttribution);
     }
+  });
+});
+
+/**
+ * The in-lobby save's status lifecycle and the room-vs-draft divergence it
+ * makes visible (Plan 02-04, Task 2). Driven by calling the store's own
+ * setters directly, mirroring the send/reply split apps/web/lib/CLAUDE.md
+ * rule 4 requires: the send is optimistic and advisory, only the room's own
+ * reply (recordAccepted for an ack, setSaveStatus for a rejection) may ever
+ * move the status to 'accepted' or leave it at 'rejected'.
+ */
+describe('useLoadoutStore save-status lifecycle (Plan 02-04)', () => {
+  it('starts idle', () => {
+    useLoadoutStore.setState({ saveStatus: { state: 'idle' }, lastAcceptedCards: null });
+    expect(useLoadoutStore.getState().saveStatus.state).toBe('idle');
+  });
+
+  it('a send marks the status pending — never accepted — until the room replies', () => {
+    useLoadoutStore.setState({ saveStatus: { state: 'idle' } });
+    useLoadoutStore.getState().setSaveStatus({ state: 'pending' });
+    expect(useLoadoutStore.getState().saveStatus).toEqual({ state: 'pending' });
+  });
+
+  it('only the room-reply action moves the status to accepted; pending alone never does', () => {
+    useLoadoutStore.setState({ saveStatus: { state: 'pending' }, lastAcceptedCards: null });
+    // The send already happened (status is 'pending'); nothing further
+    // moves it to 'accepted' except the room's own reply landing.
+    expect(useLoadoutStore.getState().saveStatus.state).toBe('pending');
+    useLoadoutStore.getState().recordAccepted([...HUNTER] as CardId[]);
+    expect(useLoadoutStore.getState().saveStatus).toEqual({ state: 'accepted' });
+  });
+
+  it('a rejection records the room-own message text verbatim', () => {
+    useLoadoutStore.setState({ saveStatus: { state: 'pending' } });
+    useLoadoutStore.getState().setSaveStatus({ state: 'rejected', message: 'Loadout must contain exactly 10 cards, got 4.' });
+    expect(useLoadoutStore.getState().saveStatus).toEqual({
+      state: 'rejected',
+      message: 'Loadout must contain exactly 10 cards, got 4.',
+    });
+  });
+
+  it('a second save after a rejection returns the status to pending — a retry in flight, not a stuck failure', () => {
+    useLoadoutStore.setState({ saveStatus: { state: 'rejected', message: 'nope' } });
+    useLoadoutStore.getState().setSaveStatus({ state: 'pending' });
+    expect(useLoadoutStore.getState().saveStatus).toEqual({ state: 'pending' });
+  });
+
+  it('an accepted save records the room-echoed card ids as lastAcceptedCards', () => {
+    useLoadoutStore.setState({ lastAcceptedCards: null });
+    useLoadoutStore.getState().recordAccepted([...OLIGARCH] as CardId[]);
+    expect(useLoadoutStore.getState().lastAcceptedCards).toEqual([...OLIGARCH]);
+  });
+
+  it('the draft and lastAcceptedCards are equal immediately after an accepted save', () => {
+    useLoadoutStore.setState({ loadout: [...SPIDER] as CardId[] });
+    useLoadoutStore.getState().recordAccepted([...SPIDER] as CardId[]);
+    const { loadout, lastAcceptedCards } = useLoadoutStore.getState();
+    expect(loadoutsDiverge(loadout, lastAcceptedCards)).toBe(false);
+  });
+
+  it('editing after an accepted save diverges the draft from lastAcceptedCards, without touching lastAcceptedCards itself', () => {
+    useLoadoutStore.setState({ loadout: [...HUNTER] as CardId[] });
+    useLoadoutStore.getState().recordAccepted([...HUNTER] as CardId[]);
+    useLoadoutStore.getState().add('ag_gold' as CardId);
+
+    const { loadout, lastAcceptedCards } = useLoadoutStore.getState();
+    expect(loadoutsDiverge(loadout, lastAcceptedCards)).toBe(true);
+    // Divergence is a state to report, not an error to reset — the record
+    // of what the room actually holds must survive the edit unchanged.
+    expect(lastAcceptedCards).toEqual([...HUNTER]);
+  });
+
+  it('loadoutsDiverge never reports divergence before anything has ever been accepted', () => {
+    expect(loadoutsDiverge([...HUNTER] as CardId[], null)).toBe(false);
+    expect(loadoutsDiverge([], null)).toBe(false);
+  });
+
+  it('loadoutsDiverge is sensitive to order, not just set membership', () => {
+    const forward = [...HUNTER] as CardId[];
+    const reversed = [...HUNTER].reverse() as CardId[];
+    expect(loadoutsDiverge(forward, reversed)).toBe(true);
   });
 });
