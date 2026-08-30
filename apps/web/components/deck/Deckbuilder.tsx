@@ -7,6 +7,7 @@ import { LegalityMeter } from './LegalityMeter.js';
 import type { LoadoutSaveStatus } from '../../lib/loadoutStore.js';
 import { loadoutLegality } from '../../lib/loadoutStore.js';
 import { PresetPicker } from './PresetPicker.js';
+import { Button } from '../ui/Button.js';
 
 /** 02-UI-SPEC.md's fixed four-color palette — a sector swatch is always
  *  paired with its uppercase text label, never color alone
@@ -24,9 +25,23 @@ export interface DeckbuilderProps {
   onAdd: (id: CardId) => void;
   onRemove: (id: CardId) => void;
   onLoadPreset: (preset: Loadout) => void;
-  /** Optional — omitted callers (none currently) simply never show the
-   *  storage-failure banner below. */
+  /** Optional — the home-page `/deck` route passes none of these four and
+   *  the component renders exactly as it always has. Only the in-lobby
+   *  embed (Plan 02-04) supplies them, and only persistence plumbing
+   *  differs between the two host contexts — no branch here may test which
+   *  page it's on. */
   saveStatus?: LoadoutSaveStatus;
+  /** Sends the draft to the room and (on acceptance) returns to the lobby
+   *  view. Absent on the home page, where there is no room to send to. */
+  onSave?: () => void;
+  /** The always-enabled second exit — closes the embed without sending.
+   *  D-01's autosave already persisted the draft locally, so backing out
+   *  loses nothing; the room simply keeps its last accepted deck. */
+  onClose?: () => void;
+  /** D-05: true for the whole time the in-lobby embed is open, regardless
+   *  of whether the seat was ready when it opened — 02-UI-SPEC.md requires
+   *  the notice on every open, never conditionally hidden. */
+  showReadyClearedBanner?: boolean;
 }
 
 /**
@@ -39,12 +54,27 @@ export interface DeckbuilderProps {
  * recomputed from `loadout` on every render — never cached — so the numbers
  * can never lag behind an edit.
  */
-export function Deckbuilder({ loadout, cards, onAdd, onRemove, onLoadPreset, saveStatus }: DeckbuilderProps) {
+export function Deckbuilder({
+  loadout,
+  cards,
+  onAdd,
+  onRemove,
+  onLoadPreset,
+  saveStatus,
+  onSave,
+  onClose,
+  showReadyClearedBanner,
+}: DeckbuilderProps) {
   const legality = loadoutLegality(loadout);
 
   return (
     <div className="flex flex-col gap-8 md:flex-row md:items-start">
-      <div className="md:w-3/5">
+      <div className="flex flex-col gap-4 md:w-3/5">
+        {showReadyClearedBanner && (
+          <p className="rounded border border-[#e2e8f0] bg-[#f1f5f9] px-4 py-2 text-sm text-[#64748b]">
+            Editing your loadout — your ready status has been cleared. Ready up again when you&apos;re done.
+          </p>
+        )}
         <CardGrid
           cards={cards}
           loadout={loadout}
@@ -97,6 +127,28 @@ export function Deckbuilder({ loadout, cards, onAdd, onRemove, onLoadPreset, sav
         <LegalityMeter legality={legality} />
 
         <p className="text-sm text-[#64748b]">Changes save automatically</p>
+
+        {onSave && onClose && (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Button
+                onClick={onSave}
+                pending={saveStatus?.state === 'pending'}
+                disabled={!legality.isLegal || saveStatus?.state === 'pending'}
+              >
+                Save Loadout
+              </Button>
+              <Button variant="ghost" onClick={onClose}>
+                Back to Lobby
+              </Button>
+            </div>
+            {saveStatus?.state === 'rejected' && saveStatus.message && (
+              <p className="text-sm text-[#dc2626]">
+                {`Couldn't save your loadout — ${saveStatus.message}. Try again.`}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

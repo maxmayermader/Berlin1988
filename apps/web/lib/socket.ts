@@ -1,6 +1,6 @@
 'use client';
 
-import { clientMessageSchema, serverMessageSchema } from '@berlin/shared';
+import { cardId, clientMessageSchema, serverMessageSchema } from '@berlin/shared';
 import type { Action, CardId, ClientMessage, ServerMessage } from '@berlin/shared';
 import { PartySocket } from 'partysocket';
 import { usePartySocket } from 'partysocket/react';
@@ -157,7 +157,10 @@ export function useRoomSocket(
       } else if (message.type === 'CLOCK') {
         useMatchStore.getState().setClock(message.deadlineAt);
       } else if (message.type === 'LOADOUT_ACK') {
-        useLoadoutStore.getState().setSaveStatus({ state: 'accepted' });
+        // recordAccepted, not setSaveStatus — this is the only place
+        // lastAcceptedCards is ever written, from the room's own echo
+        // (Plan 02-04's divergence notice reads it, never the outbound send).
+        useLoadoutStore.getState().recordAccepted(message.cards.map(cardId));
       } else if (message.type === 'LOADOUT_REJECTED') {
         useLoadoutStore.getState().setSaveStatus({ state: 'rejected', message: message.message });
       }

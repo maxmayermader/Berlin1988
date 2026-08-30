@@ -98,6 +98,15 @@ interface LoadoutStore {
    *  server render pass, where `window` doesn't exist. */
   readonly hydrated: boolean;
   readonly saveStatus: LoadoutSaveStatus;
+  /** The card ids the room's most recent LOADOUT_ACK echoed, or null before
+   *  any submission has ever been accepted. This is the room's copy of the
+   *  deck; `loadout` above is the browser's own draft. The two are allowed
+   *  to diverge (Plan 02-04's in-lobby editor: autosave updates `loadout` on
+   *  every click, but only an explicit save updates this field) — an
+   *  ordinary state to report, not an error to correct. A later edit must
+   *  never clear or rewrite this field on its own; only recordAccepted()
+   *  ever does. */
+  readonly lastAcceptedCards: readonly CardId[] | null;
   hydrate: () => void;
   /** D-02: a full overwrite, never a merge — the entire array is replaced
    *  and persisted immediately. */
@@ -109,13 +118,22 @@ interface LoadoutStore {
   /** D-03: never refuses. Drops the first entry matching `cardId` and
    *  persists immediately; a no-op (no write) if the id isn't present. */
   remove: (cardId: CardId) => void;
+  /** Marks a save pending or rejected — never used for an accepted save,
+   *  which must also record the room's echoed cards (see recordAccepted).
+   *  apps/web/lib/CLAUDE.md rule 4: the send is optimistic and advisory, the
+   *  room's own reply is what reconciles state to 'accepted'/'rejected'. */
   setSaveStatus: (status: LoadoutSaveStatus) => void;
+  /** The room accepted a submission: saveStatus becomes 'accepted' and
+   *  `cards` (the room's own echo, not the live draft) becomes
+   *  `lastAcceptedCards` — the input to the lobby's divergence notice. */
+  recordAccepted: (cards: readonly CardId[]) => void;
 }
 
 export const useLoadoutStore = create<LoadoutStore>((set, get) => ({
   loadout: [...PHANTOM],
   hydrated: false,
   saveStatus: { state: 'idle' },
+  lastAcceptedCards: null,
   hydrate: () => {
     const loaded = loadLoadout();
     set({ loadout: [...loaded] as CardId[], hydrated: true });
@@ -140,7 +158,22 @@ export const useLoadoutStore = create<LoadoutStore>((set, get) => ({
     set({ loadout: next, saveStatus: saved ? { state: 'idle' } : STORAGE_FAILED_STATUS });
   },
   setSaveStatus: (status) => set({ saveStatus: status }),
+  recordAccepted: (cards) => set({ saveStatus: { state: 'accepted' }, lastAcceptedCards: [...cards] as CardId[] }),
 }));
+
+/**
+ * True when the live draft's card ids differ from the room's last accepted
+ * save, in content or in order — the signal behind the lobby's "this match
+ * will use your last saved loadout" notice (Plan 02-04's second
+ * prohibition: divergence is reported, never silently discarded). A null
+ * `lastAccepted` (nothing has ever been submitted) never diverges — there is
+ * no room copy yet for the draft to differ from.
+ */
+export function loadoutsDiverge(draft: readonly CardId[], lastAccepted: readonly CardId[] | null): boolean {
+  if (lastAccepted === null) return false;
+  if (draft.length !== lastAccepted.length) return true;
+  return draft.some((id, index) => id !== lastAccepted[index]);
+}
 
 /**
  * Everything the legality meter renders, derived from validateLoadout() and
