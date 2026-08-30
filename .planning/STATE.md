@@ -4,11 +4,11 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 02
 current_phase_name: Deckbuilder & Persistent Loadouts
-status: in_progress
-stopped_at: Completed 02-04-PLAN.md
+status: deferred
+stopped_at: Phase 02 verified human_needed (5/5 roadmap Success Criteria); one item deferred to human sign-off, tracked in 02-UAT.md
 last_updated: "2026-08-30T06:34:23.537Z"
 last_activity: 2026-08-29
-last_activity_desc: "Phase 02 Wave 2 executed in parallel — 02-02 (full 34-card grid, live legality meter, per-tile violation highlighting) and 02-03 (room-side adversarial hardening: cross-seat isolation, all five violation codes, wire-level fog scan) both complete on top of Plan 01's tracer"
+last_activity_desc: "Phase 02 execution complete (4/4 plans) and verified human_needed; refused-save-keeps-editor-open item deferred pending human sign-off (D-03's client gate makes it unreachable by automated test)"
 progress:
   total_phases: 2
   completed_phases: 0
@@ -27,14 +27,14 @@ See: .planning/PROJECT.md (updated 2026-08-18)
 
 ## Current Position
 
-Phase: 02 (Deckbuilder & Persistent Loadouts) — IN PROGRESS
-Plan: 4 of 4 complete (02-01 tracer, 02-02 card grid/live legality meter, 02-03 room-side adversarial hardening). Wave 3 (02-04, in-lobby editor) pending both Wave 2 plans — now satisfied.
-Status: in_progress
-Last activity: 2026-08-29 — Wave 2 executed in parallel: 02-02 (CardGrid, LegalityMeter, loadoutStore add/remove + loadoutLegality()/violatingCardIds) and 02-03 (cross-seat isolation, all five violation codes, wire-level fog scan against handleSubmitLoadout/setLoadout/startMatch). Full unit + e2e suites green (324 tests).
+Phase: 02 (Deckbuilder & Persistent Loadouts) — DEFERRED (human_needed, 5/5 roadmap Success Criteria verified)
+Plan: 4 of 4 complete (02-01 tracer, 02-02 card grid/live legality meter, 02-03 room-side adversarial hardening, 02-04 in-lobby embed). All merged, 360/360 tests + 24/24 e2e green.
+Status: deferred
+Last activity: 2026-08-29 — Phase 02 verified human_needed; one item (refused-save-keeps-editor-open, D-03's client gate makes it unreachable by automated test) deferred to human sign-off via 02-UAT.md.
 
-Phase 1 status (unchanged by this plan): DEFERRED (human_needed, 6/7 must-haves; all 5 roadmap Success Criteria verified). Task 3's deployed-hibernation + human-playtest checkpoint remains pending UAT, not blocking.
+Phase 1 status (unchanged): DEFERRED (human_needed, 6/7 must-haves; all 5 roadmap Success Criteria verified). Task 3's deployed-hibernation + human-playtest checkpoint remains pending UAT, not blocking.
 
-Progress: [██████████] 100% (9/10 plans across the v1.0 milestone so far — updated after each plan completion)
+Progress: [██████████] 100% (10/10 plans across the v1.0 milestone so far — updated after each plan completion)
 
 ## Performance Metrics
 
