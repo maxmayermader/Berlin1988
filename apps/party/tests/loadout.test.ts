@@ -653,3 +653,51 @@ describe('apps/party the in-lobby editor flow: ready, edit, save, ready again (P
     expect(state!.gameState!.players[guestPlayerId]!.loadout).toEqual([...SPIDER]);
   });
 });
+
+/**
+ * Plan 02-04, Task 3: "the signal nobody asked for" — 02-CONTEXT.md's
+ * Deferred Ideas explicitly leaves a dedicated in-lobby editing indicator
+ * unbuilt, and this is where that stays true under test rather than by
+ * memory. Drives one seat through the whole D-05 open/edit/save dance and
+ * scans every frame the *other*, non-editing connection received.
+ */
+describe('apps/party the in-lobby editor leaks nothing beyond the existing ready broadcast (Plan 02-04, Task 3)', () => {
+  it('no card id appears in any frame the non-editing connection received, and every snapshot seat keeps exactly six keys', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    const code = last(host.received, 'JOINED')!.code;
+
+    const guest = room.connect('Katja');
+    await guest.send({ type: 'JOIN', code, codename: 'Katja' });
+
+    // The host runs the whole D-05 dance; the guest never touches its own
+    // loadout at all, so any card id in the guest's own received frames can
+    // only have come from the host.
+    await host.send({ type: 'SET_READY', ready: true });
+    await host.send({ type: 'SET_READY', ready: false }); // opens the editor
+    // PHANTOM/OLIGARCH is the one starter-preset pair with zero card-id
+    // overlap (Plan 02-03's own fixture choice) — a matched substring in
+    // the guest's frames can only mean a genuine leak.
+    await host.send({ type: 'SUBMIT_LOADOUT', cards: [...OLIGARCH] });
+    await host.send({ type: 'SET_READY', ready: true }); // re-confirms
+
+    const hostCardIds = room.roomState()!.seats.find((s) => s.codename === 'Vogel')!.loadout!;
+    const guestFrames = allFrames(guest).map(stringifyWithoutMap).join('␞');
+    for (const id of hostCardIds) {
+      expect(guestFrames, `host card ${id} leaked to the guest during the D-05 flow`).not.toContain(
+        id as unknown as string,
+      );
+    }
+
+    // No new field, no new message type — every ROOM_STATE seat object the
+    // guest ever received still has exactly the same six public keys.
+    const roomStateFrames = guest.received.filter((m) => m.type === 'ROOM_STATE');
+    expect(roomStateFrames.length).toBeGreaterThan(0);
+    for (const frame of roomStateFrames) {
+      for (const seat of frame.snapshot.seats) {
+        expect(Object.keys(seat)).toHaveLength(6);
+      }
+    }
+  });
+});
