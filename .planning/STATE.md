@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 02
-current_phase_name: Deckbuilder & Persistent Loadouts
-status: deferred
-stopped_at: Phase 02 verified human_needed (5/5 roadmap Success Criteria); one item deferred to human sign-off, tracked in 02-UAT.md
-last_updated: "2026-08-30T06:34:23.537Z"
-last_activity: 2026-08-29
-last_activity_desc: "Phase 02 execution complete (4/4 plans) and verified human_needed; refused-save-keeps-editor-open item deferred pending human sign-off (D-03's client gate makes it unreachable by automated test)"
+current_phase: 01
+current_phase_name: Playable Skeleton
+status: blocked
+stopped_at: 01-06 Tasks 1-2 complete (deploy verified live); Task 3 checkpoint blocked on missing Vercel deployment of apps/web
+last_updated: "2026-08-27T19:27:21.922Z"
+last_activity: 2026-08-27
+last_activity_desc: 01-06 Tasks 1-2 completed and deploy verified live; Task 3 phase-gate checkpoint blocked pending Vercel deployment of apps/web
 progress:
-  total_phases: 2
+  total_phases: 1
   completed_phases: 0
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 6
+  completed_plans: 5
 ---
 
 # Project State
@@ -23,18 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-18)
 
 **Core value:** A group of players (any mix of humans and AI) can go from the home page through a lobby into a complete, playable 14-round match and see a result — with no gaps in the underlying rules engine.
-**Current focus:** Phase 02 — Deckbuilder & Persistent Loadouts
+**Current focus:** Phase 01 — Playable Skeleton
 
 ## Current Position
 
-Phase: 02 (Deckbuilder & Persistent Loadouts) — DEFERRED (human_needed, 5/5 roadmap Success Criteria verified)
-Plan: 4 of 4 complete (02-01 tracer, 02-02 card grid/live legality meter, 02-03 room-side adversarial hardening, 02-04 in-lobby embed). All merged, 360/360 tests + 24/24 e2e green.
-Status: deferred
-Last activity: 2026-08-29 — Phase 02 verified human_needed; one item (refused-save-keeps-editor-open, D-03's client gate makes it unreachable by automated test) deferred to human sign-off via 02-UAT.md.
+Phase: 01 (Playable Skeleton) — BLOCKED
+Plan: 6 of 6 — Tasks 1-2 complete, Task 3 (phase-gate checkpoint) blocked
+Status: Blocked on user action (Vercel deployment of apps/web)
+Last activity: 2026-08-27 — 01-06 Tasks 1-2 completed and deploy verified live; Task 3 checkpoint blocked
 
-Phase 1 status (unchanged): DEFERRED (human_needed, 6/7 must-haves; all 5 roadmap Success Criteria verified). Task 3's deployed-hibernation + human-playtest checkpoint remains pending UAT, not blocking.
-
-Progress: [██████████] 100% (10/10 plans across the v1.0 milestone so far — updated after each plan completion)
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
