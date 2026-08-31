@@ -64,6 +64,10 @@ Progress: [████████░░] 83%
 | Phase 01 P04 | unknown (interrupted, resumed) | 3 tasks | 17 files |
 | Phase 01 P05 | 55min | 3 tasks | 15 files |
 | Phase 01 P06 | 45min | 2 tasks | 18 files |
+| Phase 02 P01 | 55min | 2 tasks | 18 files |
+| Phase 02 P02 | 35min | 3 tasks | 7 files |
+| Phase 02 P03 | 40min | 3 tasks | 2 files |
+| Phase 02 P04 | 45min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -93,6 +97,16 @@ Recent decisions affecting current work:
 - [Phase ?]: Static-source vitest assertions (reading component source for useReducedMotion, #2563EB, truncateCodename) served as genuine RED-before-GREEN TDD for UI-only conventions with no component-test stack this phase.
 - [Phase ?]: SelfView.score added as a deliberate exception to 'no engine changes expected' this phase — closes a fog-of-war asymmetry rather than recomputing score in the browser
 - [Phase ?]: 01-06 Task 3 (deployed hibernation + full-match human checkpoint) is blocked: no Vercel deployment of apps/web exists in this environment (no CLI, no linked project) — user must deploy and set NEXT_PUBLIC_PARTYKIT_HOST before Task 3 can be attempted
+- [Phase 02-01]: SUBMIT_LOADOUT/LOADOUT_ACK/LOADOUT_REJECTED added to the wire protocol, modelled directly on the existing SUBMIT_ORDER/ORDER_ACK/ORDER_REJECTED triad — no identity field on the inbound message, seat always resolved via seatFor(connectionId).
+- [Phase 02-01]: RoomSeat.loadout is server-only and never enters toSnapshot()/LobbySeat — a loadout is hidden pre-match information under docs/GAME_DESIGN.md §6.3, not public lobby state.
+- [Phase 02-01]: startMatch re-validates a seat's stored loadout against validateLoadout() a second time (defence in depth beyond the handler's own check) and falls back to PHANTOM if it no longer validates; bot seats are never routed through the human SUBMIT_LOADOUT path and keep createMatch's own per-faction starter loadout.
+- [Phase 02-01]: apps/web/lib/loadoutStore.ts mirrors identity.ts's SSR-safe hydration pattern exactly — hydrate() is called from a mount effect, never inside the Zustand create() initializer, to avoid a Next.js server-render-time localStorage read.
+- [Phase 02-02]: loadoutLegality() is a pure exported function (never store state or a hook) that calls validateLoadout()/budgetPointsOf() and computes no rule of its own — recomputed every render, mirroring how OrderComposer.tsx calls legalOrders() live rather than caching a derived set.
+- [Phase 02-02]: violatingCardIds is attribution, not a second rules engine — gated on the engine having already reported ICON_LIMIT/UNKNOWN_CARD for the exact draft, so it can never flag a tile in a draft validateLoadout() considers legal.
+- [Phase 02-02]: No sector in the current 34-card pool reaches ten cards (richest is nine) — a same-sector legality test fixture must pad to size with a repeated card id, which validateLoadout() tolerates since it has no duplicate-id rule.
+- [Phase 02-03]: No production code changes needed — Plan 02-01's handleSubmitLoadout/setLoadout/startMatch already satisfy the full adversarial loadout contract (cross-seat isolation, all five violation codes, every phase guard, wire-level fog scan)
+- [Phase ?]: 02-04: Task 1's tracer implemented the full in-lobby editor feature set in one pass; Tasks 2/3 became characterization coverage, consistent with 02-02/02-03 precedent.
+- [Phase ?]: 02-04: A refused-save-keeps-editor-open behavior is implemented but not automatable (D-03's client gate makes an illegal SUBMIT_LOADOUT unreachable via UI); recorded as human_judgment in coverage.
 
 ### Pending Todos
 
@@ -121,6 +135,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-27T19:27:21.915Z
-Stopped at: 01-06 Tasks 1-2 complete (deploy verified live); Task 3 checkpoint blocked on missing Vercel deployment of apps/web
-Resume file: .planning/phases/01-playable-skeleton/01-06-PLAN.md
+Last session: 2026-08-30T06:34:23.529Z
+Stopped at: Completed 02-04-PLAN.md
+Resume file: None

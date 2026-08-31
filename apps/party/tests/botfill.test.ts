@@ -1,11 +1,23 @@
-import { PHANTOM, seedRng } from '@berlin/engine';
+import { consumablePassivesIn, HUNTER, OLIGARCH, PHANTOM, seedRng, SPIDER } from '@berlin/engine';
 import { DIFFICULTY_IDS } from '@berlin/ai';
-import type { ServerMessage } from '@berlin/shared';
+import type { Loadout, Sector, ServerMessage } from '@berlin/shared';
 import { describe, expect, it } from 'vitest';
 import { fillEmptySeatsWithBots, BOT_DIFFICULTY } from '../src/bots.js';
 import { buildMatchConfig, startMatch } from '../src/settings.js';
 import { emptySeats, type RoomState } from '../src/state.js';
 import { createTestRoom } from './helpers.js';
+
+/** Mirrors createMatch.ts's own defaultLoadoutFor(faction) mapping — not
+ *  exported from @berlin/engine's public barrel, so the room-side tests
+ *  that need to know what a bot seat is entitled to restate it here,
+ *  against the engine's own STARTER_LOADOUTS exports rather than a
+ *  hand-typed card list. */
+const STARTER_FOR_FACTION: Record<Sector, Loadout> = {
+  RED: HUNTER,
+  BLUE: PHANTOM,
+  GOLD: OLIGARCH,
+  GREEN: SPIDER,
+};
 
 function last<T extends ServerMessage['type']>(
   messages: readonly ServerMessage[],
@@ -114,12 +126,51 @@ describe('apps/party/src/settings.ts buildMatchConfig / startMatch', () => {
     expect(again).toBe(started);
   });
 
-  it('after startMatch, phase is IN_GAME, gameState is non-null, and every loadout is PHANTOM', () => {
-    const started = startMatch(fixtureRoom(2), Date.now());
+  it('after startMatch, phase is IN_GAME, gameState is non-null, bot seats get their faction starter, and a human seat that submitted nothing falls back to PHANTOM', () => {
+    const room = fixtureRoom(2);
+    const started = startMatch(room, Date.now());
     expect(started.phase).toBe('IN_GAME');
     expect(started.gameState).not.toBeNull();
+
+    for (const seat of started.seats) {
+      if (!seat.playerId) continue;
+      const player = started.gameState!.players[seat.playerId];
+      expect(player).toBeDefined();
+      if (seat.kind === 'BOT') {
+        // No SUBMIT_LOADOUT is ever sent for a bot seat — it keeps exactly
+        // the per-faction starter loadout createMatch() assigned.
+        expect(player!.loadout).toEqual([...STARTER_FOR_FACTION[seat.faction]]);
+      } else {
+        // A human seat that never submitted a loadout (RoomSeat.loadout is
+        // still null) falls back to PHANTOM rather than crashing or being
+        // left with no loadout at all.
+        expect(player!.loadout).toEqual([...PHANTOM]);
+      }
+    }
+  });
+
+  it('a human seat whose stored deck no longer validates plays the safe PHANTOM fallback, not the invalid stored deck', () => {
+    // No SUBMIT_LOADOUT path can ever store an illegal deck (handleSubmitLoadout
+    // re-validates on arrival) — this simulates the one way a stored deck can
+    // still fail validation at match start: the ruleset itself moving between
+    // submission and startMatch (02-RESEARCH.md Pitfall 2). Constructed
+    // directly on the RoomState fixture, mirroring how the rest of this
+    // describe block already drives startMatch() without a live room.
+    const room = fixtureRoom(1);
+    const seats = room.seats.map((seat, i) =>
+      i === 0 ? { ...seat, loadout: [...HUNTER].slice(0, 3) } : seat, // WRONG_SIZE
+    );
+    const started = startMatch({ ...room, seats }, Date.now());
+
+    const hostPlayerId = started.seats[0]!.playerId!;
+    expect(started.gameState!.players[hostPlayerId]!.loadout).toEqual([...PHANTOM]);
+  });
+
+  it('passivesAvailable matches consumablePassivesIn of the loadout each player actually received, bots included', () => {
+    const room = fixtureRoom(2);
+    const started = startMatch(room, Date.now());
     for (const player of Object.values(started.gameState!.players)) {
-      expect(player.loadout).toEqual([...PHANTOM]);
+      expect(player.passivesAvailable).toEqual(consumablePassivesIn(player.loadout));
     }
   });
 

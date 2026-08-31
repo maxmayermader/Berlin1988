@@ -1,4 +1,4 @@
-import { submitOrder } from '@berlin/engine';
+import { DEFAULT_RULESET, submitOrder, validateLoadout } from '@berlin/engine';
 import {
   agentId as toAgentId,
   playerId as toPlayerId,
@@ -14,6 +14,7 @@ import {
   emptySeats,
   recomputeCountdown,
   setCodename,
+  setLoadout,
   setReady,
   type RoomState,
 } from './state.js';
@@ -284,5 +285,60 @@ export function handleSubmitOrder(
     state: { ...state, gameState: result.state },
     toSender: { type: 'ORDER_ACK', round: state.gameState.round, agentId: message.agentId },
     acceptedFor: seat.playerId,
+  };
+}
+
+export interface SubmitLoadoutResult {
+  state: RoomState | null;
+  /** Null when there is no seat binding for this connection — mirrors
+   *  handleSetReady/handleSetCodename's silent no-op for an unbound
+   *  connection: nothing is sent back and state is untouched. */
+  toSender: ServerMessage | null;
+}
+
+/**
+ * SUBMIT_LOADOUT — re-validates the submitted cards against the engine's own
+ * validateLoadout() before storing anything, regardless of what the client's
+ * own D-03 disable-until-legal gate already checked (that gate is UX only,
+ * never the enforcement — 02-RESEARCH.md Pitfall 2). The acting seat comes
+ * from seatFor(connectionId), never from the message body — the
+ * SUBMIT_LOADOUT schema has no identity field to read (T-2-01).
+ *
+ * No ROOM_STATE broadcast follows a loadout write: the public lobby snapshot
+ * carries nothing derived from a seat's loadout (T-2-03), so there is
+ * nothing for other connections to learn from this message landing.
+ */
+export function handleSubmitLoadout(
+  state: RoomState | null,
+  message: Extract<ClientMessage, { type: 'SUBMIT_LOADOUT' }>,
+  connectionId: string,
+): SubmitLoadoutResult {
+  if (!state) return { state: null, toSender: null };
+
+  const seat = seatFor(state, connectionId);
+  if (!seat || !seat.playerId) return { state, toSender: null };
+
+  if (state.phase !== 'LOBBY' && state.phase !== 'LOADOUT') {
+    return {
+      state,
+      toSender: { type: 'ERROR', code: 'WRONG_PHASE', message: 'The match has already started.' },
+    };
+  }
+
+  const violations = validateLoadout(message.cards, DEFAULT_RULESET);
+  if (violations.length > 0) {
+    return {
+      state,
+      toSender: {
+        type: 'LOADOUT_REJECTED',
+        message: violations.map((v) => v.message).join(' '),
+      },
+    };
+  }
+
+  const nextState = setLoadout(state, seat.playerId, [...message.cards]);
+  return {
+    state: nextState,
+    toSender: { type: 'LOADOUT_ACK', cards: message.cards.map((id) => id as string) },
   };
 }

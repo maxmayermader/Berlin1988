@@ -85,6 +85,15 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     actions: z.array(actionSchema).min(1).max(2),
     buySilencers: z.number().int().min(0).optional(),
   }),
+  z.object({
+    type: z.literal('SUBMIT_LOADOUT'),
+    // .max(64) is deliberately looser than the ruleset's loadoutSize (10) —
+    // an over-long deck should still reach validateLoadout() server-side and
+    // come back as a real WRONG_SIZE violation, not a generic malformed-
+    // frame rejection. This bound exists only to cap payload size before any
+    // engine call touches it.
+    cards: z.array(cardIdOnWire).max(64),
+  }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -96,6 +105,11 @@ export type ClientMessage = z.infer<typeof clientMessageSchema>;
 // The acting seat is always resolved from the connection binding
 // (apps/party/src/auth.ts seatFor) — adding an identity field here would
 // create the exact spoofing surface auth.ts exists to close.
+
+// SUBMIT_LOADOUT carries no playerId or seat index either, for the same
+// reason — the acting seat is always resolved via seatFor(connectionId), and
+// a seat-identifying field on this schema would be a spoofing surface, not a
+// convenience.
 
 const sectorSchema = z.enum(['RED', 'BLUE', 'GOLD', 'GREEN']);
 const seatKindSchema = z.enum(['HUMAN', 'BOT', 'OPEN']);
@@ -206,6 +220,19 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     // accident, mirroring ClockState.
     paused: z.literal(false),
     pausesRemaining: z.literal(0),
+  }),
+  z.object({
+    type: z.literal('LOADOUT_ACK'),
+    // Echoes exactly what the room stored (post-validation) — modelled on
+    // ORDER_ACK, which echoes the accepted round/agentId rather than
+    // re-deriving them client-side.
+    cards: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal('LOADOUT_REJECTED'),
+    // The joined engine violation text (LoadoutViolation.message), already
+    // human-readable — modelled on ORDER_REJECTED's message field.
+    message: z.string(),
   }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

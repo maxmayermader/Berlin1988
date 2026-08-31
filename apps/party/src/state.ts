@@ -1,6 +1,7 @@
 import { SECTORS } from '@berlin/shared';
 import type {
   AgentOrder,
+  CardId,
   Difficulty,
   GameState,
   LobbySeat,
@@ -41,6 +42,13 @@ export interface RoomSeat extends LobbySeat {
    *  fillEmptySeatsWithBots at match start. */
   personality: PersonalityId | null;
   difficulty: Difficulty | null;
+  /** Server-only, never in toSnapshot()/LobbySeat/lobbySeatSchema — a
+   *  loadout is hidden pre-match information (02-RESEARCH.md Pitfall 5,
+   *  docs/GAME_DESIGN.md §6.3: card *usage* is public, card *possession*
+   *  is not). Set by SUBMIT_LOADOUT via setLoadout(); read by
+   *  settings.ts's startMatch() for a human seat's dealt loadout. Null
+   *  until a legal SUBMIT_LOADOUT has been accepted for this seat. */
+  loadout: CardId[] | null;
 }
 
 export interface RoomState {
@@ -94,6 +102,7 @@ export function emptySeats(): RoomSeat[] {
     connectionId: null,
     personality: null,
     difficulty: null,
+    loadout: null,
   }));
 }
 
@@ -125,6 +134,25 @@ export function setCodename(state: RoomState, playerId: string, codename: string
     ...state,
     seats: state.seats.map((seat) =>
       seat.playerId === playerId && !seat.ready ? { ...seat, codename } : seat,
+    ),
+  };
+}
+
+/**
+ * Writes only the matching seat's `loadout` field, immutably — same shape as
+ * setCodename. Two deliberate differences from setCodename's rename rule:
+ * (1) the guard admits both LOBBY and LOADOUT phases, mirroring startMatch's
+ * own guard, rather than LOBBY alone; (2) this does NOT refuse a seat whose
+ * `ready` flag is set — D-05 clears ready as a separate explicit client step,
+ * so gating this write on `!seat.ready` would silently drop a legitimate
+ * submission that arrived a moment after the client's own SET_READY.
+ */
+export function setLoadout(state: RoomState, playerId: string, cards: CardId[]): RoomState {
+  if (state.phase !== 'LOBBY' && state.phase !== 'LOADOUT') return state;
+  return {
+    ...state,
+    seats: state.seats.map((seat) =>
+      seat.playerId === playerId ? { ...seat, loadout: cards } : seat,
     ),
   };
 }

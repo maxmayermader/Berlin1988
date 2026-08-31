@@ -38,6 +38,7 @@ function fixtureRoomState(overrides: Partial<MatchSettings> = {}): RoomState {
     connectionId: null,
     personality: null,
     difficulty: null,
+    loadout: null,
   }));
   return {
     code: 'ABCDEF',
