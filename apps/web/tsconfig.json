@@ -12,14 +12,6 @@
     "types": [
       "node"
     ],
-    "paths": {
-      "@berlin/shared": [
-        "../../packages/shared/src/index.ts"
-      ],
-      "@berlin/engine": [
-        "../../packages/engine/src/index.ts"
-      ]
-    },
     "allowJs": true,
     "noEmit": true,
     "incremental": true,
