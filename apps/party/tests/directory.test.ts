@@ -235,3 +235,79 @@ describe('apps/party MatchRoom -> LobbyDirectory live updates (Task 2)', () => {
     expect(frame.lobbies.find((l) => l.code === code)).toBeUndefined();
   });
 });
+
+/**
+ * Covers 03-01-PLAN.md Task 3's four hostile-input <behavior> bullets plus
+ * the method-gate: the directory's one untrusted-input boundary
+ * (T-03-02) rejects every malformed command with 400 (or 405 for a
+ * non-POST method) and stores nothing — each rejection is paired with an
+ * assertion that the directory's subsequent DIRECTORY_STATE is
+ * byte-identical to the one before the rejected POST.
+ */
+describe('apps/party LobbyDirectory hostile-input hardening (Task 3)', () => {
+  it('rejects a non-JSON body with 400 and leaves state unchanged', async () => {
+    const dir = createTestDirectory();
+    await dir.post({ type: 'UPSERT', entry: fixtureEntry() });
+    const before = dir.connect().last();
+
+    const res = await dir.post('not json');
+
+    expect(res.status).toBe(400);
+    expect(dir.connect().last()).toEqual(before);
+  });
+
+  it('rejects a well-formed JSON body with an unknown extra key with 400 and leaves state unchanged', async () => {
+    const dir = createTestDirectory();
+    await dir.post({ type: 'UPSERT', entry: fixtureEntry() });
+    const before = dir.connect().last();
+
+    const res = await dir.post({
+      type: 'UPSERT',
+      entry: fixtureEntry({ code: 'CCCCCC' }),
+      round: 3,
+    });
+
+    expect(res.status).toBe(400);
+    expect(dir.connect().last()).toEqual(before);
+  });
+
+  it('rejects an UPSERT whose hostCodename exceeds 20 characters with 400 and leaves state unchanged', async () => {
+    const dir = createTestDirectory();
+    await dir.post({ type: 'UPSERT', entry: fixtureEntry() });
+    const before = dir.connect().last();
+
+    const res = await dir.post({
+      type: 'UPSERT',
+      entry: fixtureEntry({ code: 'CCCCCC', hostCodename: 'A'.repeat(21) }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(dir.connect().last()).toEqual(before);
+  });
+
+  it('rejects an UPSERT whose seatsTotal is out of range (5 or 0) with 400 and leaves state unchanged', async () => {
+    const dir = createTestDirectory();
+    await dir.post({ type: 'UPSERT', entry: fixtureEntry() });
+    const before = dir.connect().last();
+
+    const resFive = await dir.post({
+      type: 'UPSERT',
+      entry: fixtureEntry({ code: 'CCCCCC', seatsTotal: 5 }),
+    });
+    expect(resFive.status).toBe(400);
+    expect(dir.connect().last()).toEqual(before);
+
+    const resZero = await dir.post({
+      type: 'UPSERT',
+      entry: fixtureEntry({ code: 'DDDDDD', seatsTotal: 0 }),
+    });
+    expect(resZero.status).toBe(400);
+    expect(dir.connect().last()).toEqual(before);
+  });
+
+  it('rejects a non-POST request with 405', async () => {
+    const dir = createTestDirectory();
+    const res = await dir.post({}, 'GET');
+    expect(res.status).toBe(405);
+  });
+});

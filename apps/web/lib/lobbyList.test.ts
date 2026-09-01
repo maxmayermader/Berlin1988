@@ -1,6 +1,6 @@
 import type { DirectoryEntry } from '@berlin/shared';
 import { describe, expect, it } from 'vitest';
-import { lobbyRows } from './lobbyList.js';
+import { CONNECTING_LABEL, EMPTY_BODY, EMPTY_HEADING, lobbyRows } from './lobbyList.js';
 
 /**
  * Covers 03-01-PLAN.md Task 2's last two <behavior> bullets: lobbyRows()
@@ -39,5 +39,20 @@ describe('lobbyRows', () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]?.key).not.toBe(rows[1]?.key);
     expect(rows.map((r) => r.key)).toEqual(['AAAAAA', 'BBBBBB']);
+  });
+});
+
+describe('lobbyList empty/connecting copy constants (Task 3)', () => {
+  it('EMPTY_HEADING, EMPTY_BODY and CONNECTING_LABEL are non-empty, distinct strings', () => {
+    const values = [EMPTY_HEADING, EMPTY_BODY, CONNECTING_LABEL];
+    for (const value of values) {
+      expect(typeof value).toBe('string');
+      expect(value.length).toBeGreaterThan(0);
+    }
+    expect(new Set(values).size).toBe(values.length);
+  });
+
+  it('lobbyRows([]) returns an empty array — the value the empty-state branch keys off', () => {
+    expect(lobbyRows([])).toEqual([]);
   });
 });

@@ -11,7 +11,7 @@ import {
 } from '../../lib/createJoin.js';
 import { useDirectorySocket } from '../../lib/directorySocket.js';
 import { loadIdentity } from '../../lib/identity.js';
-import { lobbyRows } from '../../lib/lobbyList.js';
+import { CONNECTING_LABEL, EMPTY_BODY, EMPTY_HEADING, lobbyRows } from '../../lib/lobbyList.js';
 import { handshake, storeRoomToken } from '../../lib/socket.js';
 import { Button } from '../ui/Button.js';
 
@@ -59,26 +59,44 @@ export function OpenLobbies() {
   }
 
   const pending = isPending(state);
+  const rows = lobbyRows(feed.lobbies);
 
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-xl font-semibold leading-[1.2]">Open Lobbies</h2>
-      <ul className="flex max-h-80 flex-col gap-2 overflow-y-auto">
-        {lobbyRows(feed.lobbies).map((row) => (
-          <li
-            key={row.key}
-            className="flex items-center justify-between gap-2 rounded border border-[#e2e8f0] bg-[#f1f5f9] p-4"
-          >
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate text-base">{row.hostLabel}</span>
-              <span className="text-sm text-[#64748b]">{row.seatsLabel}</span>
-            </span>
-            <Button pending={pending} onClick={() => onJoin(row.code)}>
-              Join
-            </Button>
-          </li>
-        ))}
-      </ul>
+      {!feed.everConnected ? (
+        // Before the first accepted DIRECTORY_STATE frame — neither the
+        // empty state nor a row list, a neutral in-between (03-UI-SPEC.md
+        // UI Considerations "loading" row).
+        <p className="text-base text-[#64748b]">{CONNECTING_LABEL}</p>
+      ) : rows.length === 0 ? (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-xl font-semibold leading-[1.2]">{EMPTY_HEADING}</h3>
+          <p className="text-base">{EMPTY_BODY}</p>
+        </div>
+      ) : (
+        // A closed socket with rows already in hand keeps rendering those
+        // rows for free: `feed.lobbies` is only ever replaced by a fresh
+        // DIRECTORY_STATE frame (directorySocket.ts never clears it on
+        // close), so there is deliberately no fourth, disconnected branch
+        // here.
+        <ul className="flex max-h-80 flex-col gap-2 overflow-y-auto">
+          {rows.map((row) => (
+            <li
+              key={row.key}
+              className="flex items-center justify-between gap-2 rounded border border-[#e2e8f0] bg-[#f1f5f9] p-4"
+            >
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-base">{row.hostLabel}</span>
+                <span className="text-sm text-[#64748b]">{row.seatsLabel}</span>
+              </span>
+              <Button pending={pending} onClick={() => onJoin(row.code)}>
+                Join
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
       {state.status === 'error' && state.error && (
         <p className="text-base text-[#0f172a]">{state.error}</p>
       )}
