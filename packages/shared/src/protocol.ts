@@ -160,6 +160,46 @@ export const lobbySnapshotSchema = z.object({
 });
 export type LobbySnapshot = z.infer<typeof lobbySnapshotSchema>;
 
+/**
+ * The lobby-directory party (Phase 3, HOME-03) — a second, singleton
+ * Durable Object every match room pushes its public metadata into, so a
+ * player with no join code can browse open lobbies. `DIRECTORY_ROOM_ID` is
+ * the one room id this party ever serves; there is exactly one directory
+ * per deployment, never one per match.
+ */
+export const DIRECTORY_PARTY_NAME = 'directory';
+export const DIRECTORY_ROOM_ID = 'lobby-directory';
+
+/**
+ * The directory's one row shape, and — by construction — the entirety of
+ * what it is allowed to know about a lobby. Built with `z.strictObject` so
+ * an unrecognised key is a parse failure rather than a silently-dropped
+ * field: this is the schema-level enforcement of P-3-01 (this plan's
+ * threat register T-03-01) — the directory fans out to strangers who are
+ * not in the room, so no field beyond these four may ever be added here.
+ */
+export const directoryEntrySchema = z.strictObject({
+  code: z.string(),
+  seatsFilled: z.number().int().min(0).max(4),
+  seatsTotal: z.number().int().min(1).max(4),
+  hostCodename: codenameSchema,
+});
+export type DirectoryEntry = z.infer<typeof directoryEntrySchema>;
+
+/**
+ * The party-to-party body `syncDirectory` POSTs to the directory — not a
+ * client message, and never reachable from `clientMessageSchema`. Also
+ * `z.strictObject`-built for the same reason as `directoryEntrySchema`
+ * above: this is the directory's one untrusted-input boundary (03-RESEARCH.md
+ * Security Domain), and the caller being this project's own code does not
+ * make it trusted.
+ */
+export const directoryCommandSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('UPSERT'), entry: directoryEntrySchema }),
+  z.strictObject({ type: z.literal('REMOVE'), code: z.string() }),
+]);
+export type DirectoryCommand = z.infer<typeof directoryCommandSchema>;
+
 export const serverMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('ROOM_STATE'),
@@ -233,6 +273,13 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     // The joined engine violation text (LoadoutViolation.message), already
     // human-readable — modelled on ORDER_REJECTED's message field.
     message: z.string(),
+  }),
+  z.object({
+    type: z.literal('DIRECTORY_STATE'),
+    // The directory party's own broadcast — every entry it currently holds,
+    // insertion-order preserved. Never carries anything beyond
+    // directoryEntrySchema's four fields (P-3-01).
+    lobbies: z.array(directoryEntrySchema),
   }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
