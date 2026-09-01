@@ -11,6 +11,7 @@ import {
 } from '../../lib/createJoin.js';
 import { useDirectorySocket } from '../../lib/directorySocket.js';
 import { loadIdentity } from '../../lib/identity.js';
+import { lobbyRows } from '../../lib/lobbyList.js';
 import { handshake, storeRoomToken } from '../../lib/socket.js';
 import { Button } from '../ui/Button.js';
 
@@ -63,18 +64,16 @@ export function OpenLobbies() {
     <section className="flex flex-col gap-4">
       <h2 className="text-xl font-semibold leading-[1.2]">Open Lobbies</h2>
       <ul className="flex max-h-80 flex-col gap-2 overflow-y-auto">
-        {feed.lobbies.map((entry) => (
+        {lobbyRows(feed.lobbies).map((row) => (
           <li
-            key={entry.code}
+            key={row.key}
             className="flex items-center justify-between gap-2 rounded border border-[#e2e8f0] bg-[#f1f5f9] p-4"
           >
             <span className="flex min-w-0 flex-col">
-              <span className="truncate text-base">{entry.hostCodename}&rsquo;s lobby</span>
-              <span className="text-sm text-[#64748b]">
-                {entry.seatsFilled}/{entry.seatsTotal} filled
-              </span>
+              <span className="truncate text-base">{row.hostLabel}</span>
+              <span className="text-sm text-[#64748b]">{row.seatsLabel}</span>
             </span>
-            <Button pending={pending} onClick={() => onJoin(entry.code)}>
+            <Button pending={pending} onClick={() => onJoin(row.code)}>
               Join
             </Button>
           </li>

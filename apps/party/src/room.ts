@@ -114,7 +114,7 @@ export default class MatchRoom implements Party.Server {
       if (result.state) await this.syncAlarm(result.state);
       sendTo(sender, result.toSender);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
-      if (result.state) await syncDirectory(this.room, result.state);
+      await this.pushDirectory(result.state);
       return;
     }
 
@@ -124,6 +124,7 @@ export default class MatchRoom implements Party.Server {
       if (result.state) await this.syncAlarm(result.state);
       sendTo(sender, result.toSender);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
+      await this.pushDirectory(result.state);
       return;
     }
 
@@ -134,6 +135,7 @@ export default class MatchRoom implements Party.Server {
         await this.syncAlarm(next);
         sendLobby(this.room, next);
       }
+      await this.pushDirectory(next);
       return;
     }
 
@@ -144,6 +146,7 @@ export default class MatchRoom implements Party.Server {
         await this.syncAlarm(next);
         sendLobby(this.room, next);
       }
+      await this.pushDirectory(next);
       return;
     }
 
@@ -174,6 +177,13 @@ export default class MatchRoom implements Party.Server {
         sendClock(this.room, closed);
       }
     }
+
+    // Self-heal for Pitfall 5 (room.context.parties is undocumented/unreliable
+    // inside onAlarm): SUBMIT_ORDER is the first inbound message a match
+    // reliably receives after startMatch moves the room to IN_GAME, so
+    // pushing here unconditionally re-attempts the onAlarm branch's REMOVE
+    // if that alarm-context directory write silently swallowed a throw.
+    await this.pushDirectory(result.state);
   }
 
   onClose(): void {
@@ -215,6 +225,12 @@ export default class MatchRoom implements Party.Server {
       sendLobby(this.room, withBots);
       sendViews(this.room, withBots, startedGameState);
       sendClock(this.room, withBots);
+      // Pushed after the post-startMatch state is persisted, so the REMOVE
+      // this sends reflects the room's new IN_GAME phase (03-01-PLAN.md
+      // Task 2). room.context.parties is documented as unreliable inside
+      // onAlarm (Pitfall 5) — the SUBMIT_ORDER self-heal above covers a
+      // silent failure here.
+      await this.pushDirectory(withBots);
       return;
     }
 
@@ -254,6 +270,11 @@ export default class MatchRoom implements Party.Server {
         await this.syncAlarm(working);
         if (working.gameState) sendResolved(this.room, working, working.gameState);
         sendClock(this.room, working);
+        // Covers the round-close-into-victory case: closeRound() can move
+        // `working.phase` to ENDED here, which syncDirectory's own
+        // commandFor() treats identically to IN_GAME (REMOVE) — this call
+        // is a no-op UPSERT-avoiding safety net, not a second code path.
+        await this.pushDirectory(working);
         return;
       }
 
@@ -270,6 +291,22 @@ export default class MatchRoom implements Party.Server {
   private async persist(state: RoomState | null): Promise<void> {
     this.state = state;
     if (state) await this.room.storage.put(STATE_KEY, state);
+  }
+
+  /**
+   * Pushes this room's public lobby metadata into the directory party — a
+   * thin no-op-on-null wrapper over directoryClient.ts's syncDirectory, so
+   * every call site below can call it unconditionally regardless of whether
+   * its own handler produced a state. Called at the tail of every branch
+   * that can change a seat, the seat count, or the phase (03-01-PLAN.md
+   * Task 2): CREATE, JOIN, SET_READY, SET_CODENAME, both onAlarm branches,
+   * and (as the Pitfall-5 self-heal) SUBMIT_ORDER. Deliberately NOT called
+   * from SUBMIT_LOADOUT — a loadout write changes nothing in the public
+   * snapshot (T-2-03).
+   */
+  private async pushDirectory(state: RoomState | null): Promise<void> {
+    if (!state) return;
+    await syncDirectory(this.room, state);
   }
 
   /**
