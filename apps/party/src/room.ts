@@ -5,6 +5,7 @@ import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
 import { decideForBotSeats, releaseBotSubmissions } from './bots.js';
 import { sendClock, sendCommitted, sendLobby, sendResolved, sendTo, sendViews } from './broadcast.js';
+import { syncDirectory } from './directoryClient.js';
 import {
   handleCreate,
   handleJoin,
@@ -113,6 +114,7 @@ export default class MatchRoom implements Party.Server {
       if (result.state) await this.syncAlarm(result.state);
       sendTo(sender, result.toSender);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
+      if (result.state) await syncDirectory(this.room, result.state);
       return;
     }
 

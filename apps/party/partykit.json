@@ -4,6 +4,7 @@
   "main": "src/room.ts",
   "compatibilityDate": "2024-01-01",
   "parties": {
-    "match": "src/room.ts"
+    "match": "src/room.ts",
+    "directory": "src/directory.ts"
   }
 }

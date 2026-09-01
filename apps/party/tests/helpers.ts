@@ -326,10 +326,7 @@ export function createTestDirectory(): TestDirectory {
         },
       };
       connections.set(connId, fakeConnection);
-      instance.onConnect?.(
-        fakeConnection as unknown as Party.Connection,
-        {} as Party.ConnectionContext,
-      );
+      instance.onConnect?.(fakeConnection as unknown as Party.Connection);
       return {
         id: connId,
         received,
