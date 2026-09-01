@@ -10,12 +10,15 @@ import {
 import { bindConnection, mintToken, seatFor } from './auth.js';
 import { newJoinCode } from './joinCode.js';
 import {
+  canSetSeatCount,
   COUNTDOWN_DURATION_MS,
   emptySeats,
+  minSeatCount,
   recomputeCountdown,
   setCodename,
   setLoadout,
   setReady,
+  setSeatCount,
   type RoomState,
 } from './state.js';
 
@@ -57,7 +60,7 @@ export function handleCreate(
   const seats = emptySeats();
   const hostSeat = seats[0];
   if (!hostSeat) {
-    throw new Error('emptySeats() returned no seats — SEAT_COUNT must be >= 1');
+    throw new Error('emptySeats() returned no seats — DEFAULT_SEAT_COUNT must be >= 1');
   }
   seats[0] = {
     ...hostSeat,
@@ -142,7 +145,10 @@ export function handleJoin(
       toSender: {
         type: 'ERROR',
         code: 'ROOM_FULL',
-        message: 'This lobby already has four players.',
+        // Interpolated from the room's own current seat count (D-04, this
+        // plan) rather than a hardcoded "four" — the host may have sized
+        // this lobby down to 1-3 seats.
+        message: `This lobby already has ${state.seats.length} player${state.seats.length === 1 ? '' : 's'}.`,
       },
       broadcastRoomState: false,
     };
@@ -201,6 +207,58 @@ export function handleSetCodename(
   if (!seat || !seat.playerId) return state;
   const withCodename = setCodename(state, seat.playerId, codename);
   return recomputeCountdown(withCodename, now, COUNTDOWN_DURATION_MS);
+}
+
+export interface SetSeatCountResult {
+  state: RoomState | null;
+  /** Null when there is no seat binding for this connection — mirrors
+   *  handleSetReady's silent no-op for an unbound connection. Otherwise
+   *  always non-null: unlike SET_READY/SET_CODENAME, a non-host actor gets
+   *  an explicit SET_SEAT_COUNT_REJECTED reply rather than a silent no-op,
+   *  so a mis-wired client surfaces the refusal instead of hanging. */
+  toSender: ServerMessage | null;
+}
+
+/**
+ * SET_SEAT_COUNT — the first host-only message in the codebase
+ * (apps/party/CLAUDE.md rule 5: host-only messages are verified against the
+ * seat that owns the room, not a flag in the message body). Resolves the
+ * acting seat via seatFor(connectionId) exactly like handleSetReady, then
+ * additionally compares seat.playerId against state.hostPlayerId before any
+ * mutation — the wire schema has no role field to trust instead.
+ */
+export function handleSetSeatCount(
+  state: RoomState | null,
+  count: number,
+  connectionId: string,
+  now: number,
+): SetSeatCountResult {
+  if (!state) return { state: null, toSender: null };
+
+  const seat = seatFor(state, connectionId);
+  if (!seat || !seat.playerId) return { state, toSender: null };
+
+  if (seat.playerId !== state.hostPlayerId) {
+    return {
+      state,
+      toSender: {
+        type: 'SET_SEAT_COUNT_REJECTED',
+        message: 'Only the host can change the seat count.',
+      },
+    };
+  }
+
+  if (!canSetSeatCount(state, count)) {
+    return {
+      state,
+      toSender: {
+        type: 'SET_SEAT_COUNT_REJECTED',
+        message: `Can't go below ${minSeatCount(state)} — seats are filled.`,
+      },
+    };
+  }
+
+  return { state: setSeatCount(state, count, now), toSender: null };
 }
 
 export interface SubmitOrderResult {

@@ -7,6 +7,7 @@ import type {
   LobbySeat,
   LobbySnapshot,
   PersonalityId,
+  Sector,
 } from '@berlin/shared';
 
 /**
@@ -19,8 +20,16 @@ import type {
  */
 export type RoomPhase = 'LOBBY' | 'LOADOUT' | 'IN_GAME' | 'ENDED';
 
-/** Seat count is fixed at 4 for Phase 1 — host seat-count control is Phase 3. */
-export const SEAT_COUNT = 4;
+/** The seat count a new room opens at. D-04 (Phase 3) lets the host move it
+ *  anywhere between MIN_SEAT_COUNT and MAX_SEAT_COUNT before the match
+ *  starts — see canSetSeatCount/setSeatCount below. No longer fixed. */
+export const DEFAULT_SEAT_COUNT = 4;
+
+/** The floor a host can never set the room below (LOBBY-01). */
+export const MIN_SEAT_COUNT = 1;
+
+/** The ceiling a host can never set the room above (LOBBY-01). */
+export const MAX_SEAT_COUNT = 4;
 
 /** 10 seconds — long enough for a player who mis-clicks Ready in a
  *  four-seat lobby to notice and un-ready before the match actually
@@ -89,9 +98,12 @@ export interface BotSubmission {
   readonly releaseAt: number;
 }
 
-/** Four open seats, one per SECTORS entry, in index order. */
-export function emptySeats(): RoomSeat[] {
-  return SECTORS.slice(0, SEAT_COUNT).map((faction, index) => ({
+/** One open seat at `index` for `faction` — the shape every seat starts in
+ *  and the shape vacateSeat (Task 2) resets a kicked seat back to. Kept as
+ *  its own function so emptySeats() and setSeatCount()'s seat-growth branch
+ *  never duplicate this literal. */
+function openSeat(index: number, faction: Sector): RoomSeat {
+  return {
     index,
     playerId: null,
     codename: null,
@@ -103,7 +115,13 @@ export function emptySeats(): RoomSeat[] {
     personality: null,
     difficulty: null,
     loadout: null,
-  }));
+  };
+}
+
+/** `count` open seats (default DEFAULT_SEAT_COUNT), one per SECTORS entry,
+ *  in index order. */
+export function emptySeats(count: number = DEFAULT_SEAT_COUNT): RoomSeat[] {
+  return SECTORS.slice(0, count).map((faction, index) => openSeat(index, faction));
 }
 
 /**
@@ -155,6 +173,71 @@ export function setLoadout(state: RoomState, playerId: string, cards: CardId[]):
       seat.playerId === playerId ? { ...seat, loadout: cards } : seat,
     ),
   };
+}
+
+/**
+ * The lowest seat count that would strand no occupied seat — the highest
+ * *index* among seats whose `kind` is not `OPEN`, plus one, or
+ * MIN_SEAT_COUNT when no seat is occupied. Deliberately the highest
+ * occupied *index*, not the *count* of occupied seats: a prior kick
+ * (Task 2's vacateSeat) can leave an occupied seat above an open one — e.g.
+ * seats 0 and 2 occupied, seat 1 open — and a count-based threshold (2, in
+ * that example) would then let the host shrink the room to 2 seats and
+ * silently truncate the player sitting in seat 2. That is exactly the
+ * ejection-by-seat-count-change D-05 forbids, so the threshold must track
+ * the highest surviving index, not how many seats happen to be filled.
+ */
+export function minSeatCount(state: RoomState): number {
+  let highestOccupied = -1;
+  for (const seat of state.seats) {
+    if (seat.kind !== 'OPEN' && seat.index > highestOccupied) highestOccupied = seat.index;
+  }
+  return highestOccupied === -1 ? MIN_SEAT_COUNT : highestOccupied + 1;
+}
+
+/**
+ * The single server-side authority for whether a seat-count change is
+ * legal (D-04, D-05) — handleSetSeatCount calls this and nothing
+ * re-derives the rule. The wire schema's own 1..4 bound (packages/shared/src/protocol.ts)
+ * is defence in depth, not a substitute for this check.
+ */
+export function canSetSeatCount(state: RoomState, count: number): boolean {
+  return (
+    Number.isInteger(count) &&
+    count >= MIN_SEAT_COUNT &&
+    count <= MAX_SEAT_COUNT &&
+    count >= minSeatCount(state) &&
+    (state.phase === 'LOBBY' || state.phase === 'LOADOUT')
+  );
+}
+
+/**
+ * Resizes the room to `count` seats. Returns `state` unchanged — by
+ * reference — when the change is illegal (canSetSeatCount is false) or
+ * already applied (state.seats.length === count): the latter is what makes
+ * a repeated identical value a genuine reference-equal no-op, which
+ * room.ts's existing reference-distinct broadcast guard then turns into "no
+ * duplicate ROOM_STATE frame". Shrinking slices the existing seats down;
+ * growing appends freshly-built OPEN seats for the new indices, each
+ * faction drawn from SECTORS at that index (openSeat/emptySeats' own
+ * convention). Always re-derives the countdown threshold afterward — a
+ * shrinking room changes the filled-seat denominator readyRatio divides by,
+ * exactly like every other lobby mutation that already re-derives it.
+ */
+export function setSeatCount(state: RoomState, count: number, now: number): RoomState {
+  if (!canSetSeatCount(state, count) || state.seats.length === count) return state;
+
+  const seats =
+    count < state.seats.length
+      ? state.seats.slice(0, count)
+      : [
+          ...state.seats,
+          ...SECTORS.slice(state.seats.length, count).map((faction, i) =>
+            openSeat(state.seats.length + i, faction),
+          ),
+        ];
+
+  return recomputeCountdown({ ...state, seats }, now, COUNTDOWN_DURATION_MS);
 }
 
 /** Ready filled seats over total filled seats. Total function — an

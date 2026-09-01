@@ -11,6 +11,7 @@ import {
   handleJoin,
   handleSetCodename,
   handleSetReady,
+  handleSetSeatCount,
   handleSubmitLoadout,
   handleSubmitOrder,
 } from './handlers.js';
@@ -147,6 +148,29 @@ export default class MatchRoom implements Party.Server {
         sendLobby(this.room, next);
       }
       await this.pushDirectory(next);
+      return;
+    }
+
+    if (message.type === 'SET_SEAT_COUNT') {
+      // The first host-only message in the codebase (apps/party/CLAUDE.md
+      // rule 5). Modelled on the SET_READY branch above, with one addition:
+      // the returned state's reference identity is the broadcast guard —
+      // handleSetSeatCount/setSeatCount return the exact input `state` when
+      // the change is illegal or already applied, so a repeated identical
+      // value (or a rejected change) fires no duplicate ROOM_STATE or
+      // directory frame, while a genuine rejection reply still reaches the
+      // sender either way.
+      const before = this.state;
+      const result = handleSetSeatCount(this.state, message.count, sender.id, now);
+      await this.persist(result.state);
+      if (result.toSender) sendTo(sender, result.toSender);
+      if (result.state && result.state !== before) {
+        await this.syncAlarm(result.state);
+        sendLobby(this.room, result.state);
+        // Keeps the directory's seatsTotal in sync with a host-driven
+        // resize, exactly like every other seat/phase-affecting branch.
+        await this.pushDirectory(result.state);
+      }
       return;
     }
 

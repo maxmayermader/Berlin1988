@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Deckbuilder } from '../../../components/deck/Deckbuilder.js';
 import { CodenameEditor } from '../../../components/lobby/CodenameEditor.js';
 import { ReadyCountdown } from '../../../components/lobby/ReadyCountdown.js';
+import { SeatCountControl } from '../../../components/lobby/SeatCountControl.js';
 import { SeatList } from '../../../components/lobby/SeatList.js';
 import { Button } from '../../../components/ui/Button.js';
 import { loadIdentity } from '../../../lib/identity.js';
@@ -36,10 +37,18 @@ export default function LobbyPage() {
   // 'accepted' value long after this editor has closed and reopened.
   const awaitingSaveCloseRef = useRef(false);
   const [editingLoadout, setEditingLoadout] = useState(false);
+  // Set from a SET_SEAT_COUNT_REJECTED frame, cleared on the next ROOM_STATE
+  // — mirrors the room's own "the next authoritative frame wins" discipline
+  // rather than a client-side timeout.
+  const [seatCountError, setSeatCountError] = useState<string | null>(null);
 
   const socket = useRoomSocket(code, identity.codename, (message: ServerMessage) => {
-    if (message.type === 'ROOM_STATE') setSnapshot(message.snapshot);
+    if (message.type === 'ROOM_STATE') {
+      setSnapshot(message.snapshot);
+      setSeatCountError(null);
+    }
     if (message.type === 'JOINED') setPlayerId(message.playerId);
+    if (message.type === 'SET_SEAT_COUNT_REJECTED') setSeatCountError(message.message);
   });
 
   useEffect(() => {
@@ -80,6 +89,19 @@ export default function LobbyPage() {
   }, [snapshot?.phase, code, router]);
 
   const mySeat = snapshot?.seats.find((seat) => seat.playerId === playerId) ?? null;
+  const isHost = snapshot !== null && snapshot.hostPlayerId === playerId;
+  // UX mirror only — apps/party/src/state.ts's canSetSeatCount is the
+  // authority. This exists solely to grey a control the server would refuse
+  // anyway, computed identically from the public snapshot the client
+  // already has (highest non-OPEN seat index + 1, or 1).
+  const minAllowed = (() => {
+    if (!snapshot) return 1;
+    let highestOccupied = -1;
+    for (const seat of snapshot.seats) {
+      if (seat.kind !== 'OPEN' && seat.index > highestOccupied) highestOccupied = seat.index;
+    }
+    return highestOccupied === -1 ? 1 : highestOccupied + 1;
+  })();
 
   function send(message: ClientMessage) {
     socket.send(JSON.stringify(clientMessageSchema.parse(message)));
@@ -88,6 +110,10 @@ export default function LobbyPage() {
   function toggleReady() {
     if (!mySeat) return;
     send({ type: 'SET_READY', ready: !mySeat.ready });
+  }
+
+  function selectSeatCount(count: number) {
+    send({ type: 'SET_SEAT_COUNT', count });
   }
 
   function renameCodename(codename: string) {
@@ -145,7 +171,16 @@ export default function LobbyPage() {
               onSubmit={renameCodename}
             />
           )}
-          <SeatList snapshot={snapshot} onToggleReady={toggleReady} myPlayerId={playerId} />
+          <div className="flex flex-col gap-4">
+            <SeatCountControl
+              current={snapshot.seats.length}
+              minAllowed={minAllowed}
+              isHost={isHost}
+              error={seatCountError}
+              onSelect={selectSeatCount}
+            />
+            <SeatList snapshot={snapshot} onToggleReady={toggleReady} myPlayerId={playerId} />
+          </div>
           {mySeat && (
             <div className="flex gap-2">
               <Button onClick={toggleReady}>{mySeat.ready ? 'Ready ✓' : 'Ready Up'}</Button>

@@ -94,6 +94,18 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     // engine call touches it.
     cards: z.array(cardIdOnWire).max(64),
   }),
+  z.object({
+    type: z.literal('SET_SEAT_COUNT'),
+    // The wire bound (1..4) is deliberately the same range the server's own
+    // canSetSeatCount predicate enforces — an out-of-range value is a
+    // malformed frame before it ever reaches the handler, and the handler's
+    // bound check remains as defence in depth rather than the only check.
+    // Carries no identity field, for the same reason SET_READY does not: the
+    // acting seat — and its host authority — is resolved from the
+    // connection binding (apps/party/src/auth.ts seatFor), never trusted
+    // from the message body.
+    count: z.number().int().min(1).max(4),
+  }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -280,6 +292,15 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     // insertion-order preserved. Never carries anything beyond
     // directoryEntrySchema's four fields (P-3-01).
     lobbies: z.array(directoryEntrySchema),
+  }),
+  z.object({
+    type: z.literal('SET_SEAT_COUNT_REJECTED'),
+    // Deliberately no SET_SEAT_COUNT_ACK exists — success is signalled by
+    // the next ROOM_STATE broadcast whose snapshot.seats.length is the new
+    // count, exactly how SET_READY already signals success with no ack of
+    // its own. Only the rejection needs a dedicated message, matching the
+    // LOADOUT_REJECTED precedent.
+    message: z.string(),
   }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
