@@ -1,6 +1,7 @@
 import {
   directoryEntrySchema,
   serverMessageSchema,
+  type DirectoryCommand,
   type DirectoryEntry,
 } from '@berlin/shared';
 import type * as Party from 'partykit/server';
@@ -130,5 +131,107 @@ describe('apps/party LobbyDirectory', () => {
     const res = await dir.post('not json');
     expect(res.status).toBe(400);
     expect(dir.connect().last()).toEqual({ type: 'DIRECTORY_STATE', lobbies: [] });
+  });
+});
+
+/**
+ * Covers 03-01-PLAN.md Task 2's <behavior> block: the public list stays
+ * live across a seat count change and vanishes at match start, with a
+ * proven self-heal for the documented onAlarm room.context limitation
+ * (Pitfall 5). Each case replays the room's own recorded DirectoryCommands
+ * into a real LobbyDirectory instance (createTestDirectory) so assertions
+ * are made against the directory's actual DIRECTORY_STATE, not just the
+ * commands sent to it.
+ */
+describe('apps/party MatchRoom -> LobbyDirectory live updates (Task 2)', () => {
+  it('a second JOIN pushes an UPSERT with seatsFilled 2 and does not change row order', async () => {
+    const roomA = createTestRoom('room-a');
+    const hostA = roomA.connect();
+    await hostA.send({ type: 'CREATE', codename: 'Alpha' });
+    const codeA = roomA.roomState()?.code;
+
+    const roomB = createTestRoom('room-b');
+    const hostB = roomB.connect();
+    await hostB.send({ type: 'CREATE', codename: 'Bravo' });
+    const codeB = roomB.roomState()?.code;
+
+    const dir = createTestDirectory();
+    for (const cmd of roomA.directoryCommands()) await dir.post(cmd);
+    for (const cmd of roomB.directoryCommands()) await dir.post(cmd);
+
+    const joiner = roomA.connect();
+    await joiner.send({ type: 'JOIN', code: codeA as string, codename: 'Second' });
+
+    const latest = roomA.directoryCommands().at(-1);
+    expect(latest).toEqual({
+      type: 'UPSERT',
+      entry: { code: codeA, seatsFilled: 2, seatsTotal: 4, hostCodename: 'Alpha' },
+    });
+
+    await dir.post(latest as DirectoryCommand);
+    const frame = dir.connect().last();
+    if (frame?.type !== 'DIRECTORY_STATE') throw new Error('expected DIRECTORY_STATE');
+    expect(frame.lobbies.map((l) => l.code)).toEqual([codeA, codeB]);
+    expect(frame.lobbies[0]?.seatsFilled).toBe(2);
+  });
+
+  it('a token rebind JOIN produces an UPSERT whose seatsFilled is unchanged', async () => {
+    const room = createTestRoom();
+    const host = room.connect();
+    await host.send({ type: 'CREATE', codename: 'Iron Falcon' });
+    const joined = host.received.find((m) => m.type === 'JOINED');
+    if (joined?.type !== 'JOINED') throw new Error('expected JOINED');
+    const { code, token } = joined;
+
+    const before = room.directoryCommands().length;
+    const reconnect = room.connect();
+    await reconnect.send({ type: 'JOIN', code, codename: 'Iron Falcon', token });
+
+    const commands = room.directoryCommands();
+    expect(commands.length).toBeGreaterThan(before);
+    expect(commands.at(-1)).toEqual({
+      type: 'UPSERT',
+      entry: { code, seatsFilled: 1, seatsTotal: 4, hostCodename: 'Iron Falcon' },
+    });
+  });
+
+  it('after the alarm moves the room to IN_GAME and one further message is handled, the code is absent from the directory', async () => {
+    const room = createTestRoom();
+    const host = room.connect();
+    await host.send({ type: 'CREATE', codename: 'Iron Falcon' });
+    const code = room.roomState()?.code;
+    await host.send({ type: 'SET_READY', ready: true });
+    await room.triggerAlarm(); // countdown expiry -> startMatch, bots fill empty seats
+
+    await room.holdSeat(0); // one further inbound message
+
+    const dir = createTestDirectory();
+    for (const cmd of room.directoryCommands()) await dir.post(cmd);
+    const frame = dir.connect().last();
+    if (frame?.type !== 'DIRECTORY_STATE') throw new Error('expected DIRECTORY_STATE');
+    expect(frame.lobbies.find((l) => l.code === code)).toBeUndefined();
+  });
+
+  it('self-heals a REMOVE when room.context throws during the alarm-context call (Pitfall 5)', async () => {
+    const room = createTestRoom();
+    const host = room.connect();
+    await host.send({ type: 'CREATE', codename: 'Iron Falcon' });
+    const code = room.roomState()?.code;
+    await host.send({ type: 'SET_READY', ready: true });
+
+    room.setDirectoryBroken(true);
+    await room.triggerAlarm(); // startMatch -> IN_GAME; the REMOVE silently swallowed
+    room.setDirectoryBroken(false);
+
+    await room.holdSeat(0); // the self-heal: SUBMIT_ORDER's tail pushDirectory retries
+
+    const commands = room.directoryCommands();
+    expect(commands.at(-1)).toEqual({ type: 'REMOVE', code });
+
+    const dir = createTestDirectory();
+    for (const cmd of commands) await dir.post(cmd);
+    const frame = dir.connect().last();
+    if (frame?.type !== 'DIRECTORY_STATE') throw new Error('expected DIRECTORY_STATE');
+    expect(frame.lobbies.find((l) => l.code === code)).toBeUndefined();
   });
 });
