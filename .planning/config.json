@@ -17,7 +17,8 @@
     "ui_review": true,
     "skip_discuss": false,
     "use_worktrees": true,
-    "research_before_questions": true
+    "research_before_questions": true,
+    "_auto_chain_active": false
   },
   "plan_review": {
     "source_grounding": true

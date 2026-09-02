@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 01
-current_phase_name: Playable Skeleton
-status: blocked
-stopped_at: 01-06 Tasks 1-2 complete (deploy verified live); Task 3 checkpoint blocked on missing Vercel deployment of apps/web
-last_updated: "2026-08-27T19:27:21.922Z"
-last_activity: 2026-08-27
-last_activity_desc: 01-06 Tasks 1-2 completed and deploy verified live; Task 3 phase-gate checkpoint blocked pending Vercel deployment of apps/web
+current_phase: 4
+current_phase_name: Deduction Surfaces & Presentation Polish
+status: planning
+stopped_at: Completed 03-04-PLAN.md — Phase 3 complete
+last_updated: "2026-09-02T18:48:02.257Z"
+last_activity: 2026-09-02
+last_activity_desc: Phase 03 complete, transitioned to Phase 4
 progress:
-  total_phases: 1
-  completed_phases: 0
-  total_plans: 6
-  completed_plans: 5
+  total_phases: 3
+  completed_phases: 3
+  total_plans: 14
+  completed_plans: 14
 ---
 
 # Project State
@@ -23,22 +23,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-18)
 
 **Core value:** A group of players (any mix of humans and AI) can go from the home page through a lobby into a complete, playable 14-round match and see a result — with no gaps in the underlying rules engine.
-**Current focus:** Phase 01 — Playable Skeleton
+**Current focus:** Phase 03 — open-lobbies-host-control-table-talk
 
 ## Current Position
 
-Phase: 01 (Playable Skeleton) — BLOCKED
-Plan: 6 of 6 — Tasks 1-2 complete, Task 3 (phase-gate checkpoint) blocked
-Status: Blocked on user action (Vercel deployment of apps/web)
-Last activity: 2026-08-27 — 01-06 Tasks 1-2 completed and deploy verified live; Task 3 checkpoint blocked
+Phase: 4 — Deduction Surfaces & Presentation Polish
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-02 — Phase 03 complete, transitioned to Phase 4
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 4
 - Average duration: —
 - Total execution time: —
 
@@ -46,7 +46,7 @@ Progress: [████████░░] 83%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 03 | 4 | - | - |
 
 **Recent Trend:**
 
@@ -68,6 +68,9 @@ Progress: [████████░░] 83%
 | Phase 02 P02 | 35min | 3 tasks | 7 files |
 | Phase 02 P03 | 40min | 3 tasks | 2 files |
 | Phase 02 P04 | 45min | 3 tasks | 7 files |
+| Phase 03 P01 | single session (spanning checkpoint) | 4 tasks | 12 files |
+| Phase 03 P03 | 20min | 3 tasks | 26 files |
+| Phase 03 P04 | single session, spanning one checkpoint | 4 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -107,6 +110,20 @@ Recent decisions affecting current work:
 - [Phase 02-03]: No production code changes needed — Plan 02-01's handleSubmitLoadout/setLoadout/startMatch already satisfy the full adversarial loadout contract (cross-seat isolation, all five violation codes, every phase guard, wire-level fog scan)
 - [Phase ?]: 02-04: Task 1's tracer implemented the full in-lobby editor feature set in one pass; Tasks 2/3 became characterization coverage, consistent with 02-02/02-03 precedent.
 - [Phase ?]: 02-04: A refused-save-keeps-editor-open behavior is implemented but not automatable (D-03's client gate makes an illegal SUBMIT_LOADOUT unreachable via UI); recorded as human_judgment in coverage.
+- [Phase ?]: 03-01: Directory entries keyed by room code (not host codename) so two lobbies with the same host codename never collide
+- [Phase ?]: 03-01: pushDirectory() called from every seat/phase-affecting room.ts branch, plus unconditionally at SUBMIT_ORDER's tail as a self-heal for room.context.parties being unreliable inside onAlarm
+- [Phase ?]: 03-01: A BOT seat counts as filled for seatsFilled since a bot-auto-filled lobby is genuinely not joinable
+- [Phase ?]: 03-01: directorySocket.ts never clears lobbies on socket close — a directory-party outage degrades to stale-but-visible rows rather than a broken home page
+- [Phase ?]: 03-01: directoryEntrySchema/directoryCommandSchema built with z.strictObject to structurally enforce prohibition P-3-01 (no field beyond the four D-02 fields can reach the wire)
+- [Phase ?]: 03-03: CHAT_SEND's text/promptId exclusivity enforced via .superRefine() on the whole discriminatedUnion (a second CHAT_SEND member can't coexist under the same discriminator key)
+- [Phase ?]: 03-03: chatMessageSchema and the CHAT_SEND client member are both z.strictObject — structural enforcement of P-3-02's payload half and T-03-15, beyond a plain z.object
+- [Phase ?]: 03-03: sendChatHistory is a targeted sendTo, deliberately not folded into sendChat's room-wide fan-out — it carries data every connection already has, so no per-recipient variation of the kind P-3-02 forbids
+- [Phase ?]: 03-03: ChatComposer extracted as its own exported sub-component from ChatPanel.tsx so the flavor-prompt picker and composer markup are never duplicated between the lobby and match chat surfaces
+- [Phase ?]: 03-04: personality.title already existed in packages/ai (03-RESEARCH.md Pitfall 4 correct, 03-CONTEXT.md D-09 stale) — no title lookup was added
+- [Phase ?]: 03-04: RoomSeat.controlledBy split from kind — kind is origin (never changes), controlledBy is current driver (flips HUMAN<->AI both ways)
+- [Phase ?]: 03-04: DISCONNECT_GRACE_MS = 20_000, planner's choice per D-07 — a lower bound on the real reclaim window, not an exact one
+- [Phase ?]: 03-04: reclaimSeat purges every queued botSubmissions entry for the reclaimed seat atomically with the control flip, closing the verified submitOrder() overwrite race
+- [Phase ?]: [Phase 03-04]: Task 4 checkpoint (cross-browser disconnect/grace-period/AI-takeover/reclaim verification) approved by user across all 12 steps — plan and Phase 3 complete
 
 ### Pending Todos
 
@@ -124,6 +141,7 @@ None yet.
 - **REQUIREMENTS.md coverage count was stale** — header said 26 v1 requirements; actual count is 28. Corrected during roadmap creation.
 - ~~PartyKit CLI not authorised against a Cloudflare account~~ — RESOLVED 2026-08-27: user completed `pnpm --filter party exec partykit login`; `partykit deploy` ran and the deployed room was verified live.
 - 01-06 Task 3 phase-gate checkpoint cannot start: apps/web has no Vercel deployment in this environment (no `vercel` CLI, no linked `.vercel/` project, no `gh` CLI to check GitHub-integration auto-deploy). apps/party IS deployed and verified live at https://berlin1988-party.maxmayermader.partykit.dev (confirmed via `POST /parties/match/_new` -> `{"code":"F233NQ"}`). User must deploy apps/web to Vercel, set `NEXT_PUBLIC_PARTYKIT_HOST` to `berlin1988-party.maxmayermader.partykit.dev`, then run Task 3's manual verification steps A and B from 01-06-PLAN.md.
+- 03-04 Task 4 (checkpoint:human-verify, gate=blocking): real cross-browser disconnect/grace-period/AI-takeover/reclaim verification required — dev servers already running (web http://localhost:3000, party http://127.0.0.1:1999). See 03-04-PLAN.md Task 4 for the 12-step verification script.
 
 ## Deferred Items
 
@@ -135,6 +153,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-30T06:34:23.529Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-09-02T18:38:11.305Z
+Stopped at: Completed 03-04-PLAN.md — Phase 3 complete
 Resume file: None

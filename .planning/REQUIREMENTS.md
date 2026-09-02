@@ -11,7 +11,7 @@ Requirements for initial release (the UI/realtime milestone). Each maps to roadm
 
 - [x] **HOME-01**: User can create a new game from the home page, receiving a unique join code
 - [x] **HOME-02**: User can join a game by entering a join code
-- [ ] **HOME-03**: User can browse a public list of open lobbies and join one with a click
+- [x] **HOME-03**: User can browse a public list of open lobbies and join one with a click
 - [x] **HOME-04**: User can access the deckbuilder from the home page
 
 ### Deckbuilder
@@ -24,19 +24,19 @@ Requirements for initial release (the UI/realtime milestone). Each maps to roadm
 
 ### Lobby
 
-- [ ] **LOBBY-01**: Host can toggle game size (seat count) before start
-- [ ] **LOBBY-02**: Host can kick a player from the lobby
+- [x] **LOBBY-01**: Host can toggle game size (seat count) before start
+- [x] **LOBBY-02**: Host can kick a player from the lobby
 - [x] **LOBBY-03**: Players can ready up; each seat's ready state is visible to everyone
 - [x] **LOBBY-04**: A countdown to start begins automatically once ≥50% of filled seats are ready
 - [x] **LOBBY-05**: Host can start a game solo, auto-filling all other seats with AI opponents
-- [ ] **LOBBY-06**: A kicked or disconnected player's seat can be filled by AI rather than voiding the match
-- [ ] **LOBBY-07**: Each AI-controlled seat displays the bot's name and personality, not just a difficulty label
+- [x] **LOBBY-06**: A kicked or disconnected player's seat can be filled by AI rather than voiding the match
+- [x] **LOBBY-07**: Each AI-controlled seat displays the bot's name and personality, not just a difficulty label
 
 ### Chat
 
-- [ ] **CHAT-01**: Players can send free-text chat messages in the lobby
-- [ ] **CHAT-02**: Players can send free-text chat messages during a match
-- [ ] **CHAT-03**: Players can send predefined flavor-text chat prompts (e.g. "Berlin is nice this time of year") in addition to free text, in both lobby and match
+- [x] **CHAT-01**: Players can send free-text chat messages in the lobby
+- [x] **CHAT-02**: Players can send free-text chat messages during a match
+- [x] **CHAT-03**: Players can send predefined flavor-text chat prompts (e.g. "Berlin is nice this time of year") in addition to free text, in both lobby and match
 
 ### In-Match UI
 
@@ -111,14 +111,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DECK-03 | Phase 2 | Complete |
 | DECK-04 | Phase 2 | Complete |
 | DECK-05 | Phase 2 | Complete |
-| HOME-03 | Phase 3 | Pending |
-| LOBBY-01 | Phase 3 | Pending |
-| LOBBY-02 | Phase 3 | Pending |
-| LOBBY-06 | Phase 3 | Pending |
-| LOBBY-07 | Phase 3 | Pending |
-| CHAT-01 | Phase 3 | Pending |
-| CHAT-02 | Phase 3 | Pending |
-| CHAT-03 | Phase 3 | Pending |
+| HOME-03 | Phase 3 | Complete |
+| LOBBY-01 | Phase 3 | Complete |
+| LOBBY-02 | Phase 3 | Complete |
+| LOBBY-06 | Phase 3 | Complete |
+| LOBBY-07 | Phase 3 | Complete |
+| CHAT-01 | Phase 3 | Complete |
+| CHAT-02 | Phase 3 | Complete |
+| CHAT-03 | Phase 3 | Complete |
 | MATCH-06 | Phase 4 | Pending |
 | MATCH-07 | Phase 4 | Pending |
 | POLISH-01 | Phase 4 | Pending |
