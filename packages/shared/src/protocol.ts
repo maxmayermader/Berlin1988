@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { PlayerView } from './view.js';
 import type { Action } from './orders.js';
 import { cardId, nodeId } from './ids.js';
+import { FLAVOR_PROMPTS } from './prompts.js';
 
 /**
  * The wire contract between apps/web and apps/party. Zod schemas are the
@@ -17,6 +18,10 @@ import { cardId, nodeId } from './ids.js';
 
 /** Authoritative codename cap. The client's own cap is UX only. */
 const codenameSchema = z.string().trim().min(1).max(20);
+
+/** 240 UTF-16 code units — the authoritative cap on a chat message's text,
+ *  enforced at the wire schema before any handler runs (T-03-16). */
+export const CHAT_TEXT_MAX = 240;
 
 /**
  * Node and card ids arrive as z.string() on the wire and are branded on the
@@ -59,6 +64,30 @@ export const agentOrderSchema = z.object({
   buySilencers: z.number().int().min(0).optional(),
 });
 
+/** LOBBY while the room is in RoomPhase LOBBY/LOADOUT, MATCH once IN_GAME/ENDED
+ *  — apps/party/src/chat.ts's chatScopeFor is the single function that maps a
+ *  RoomPhase to one of these two, so D-10's separation is a property of the
+ *  phase machine rather than a convention two call sites could drift on. */
+export const chatScopeSchema = z.enum(['LOBBY', 'MATCH']);
+export type ChatScope = z.infer<typeof chatScopeSchema>;
+
+/**
+ * One chat message, exactly as broadcast to every connection. Built with
+ * `z.strictObject` so a sixth field (an agent id, a node id, a seat index)
+ * can never be added to this payload without a deliberate schema change
+ * review will see — the structural half of prohibition P-3-02 and threat
+ * T-03-15. `codename` is resolved server-side from the sending connection's
+ * bound seat (D-11); this schema carries no other identity field.
+ */
+export const chatMessageSchema = z.strictObject({
+  id: z.string(),
+  scope: chatScopeSchema,
+  codename: codenameSchema,
+  text: z.string().min(1).max(CHAT_TEXT_MAX),
+  at: z.number().int(),
+});
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
 export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('CREATE'),
@@ -94,8 +123,64 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     // engine call touches it.
     cards: z.array(cardIdOnWire).max(64),
   }),
-]);
+  z.object({
+    type: z.literal('SET_SEAT_COUNT'),
+    // The wire bound (1..4) is deliberately the same range the server's own
+    // canSetSeatCount predicate enforces — an out-of-range value is a
+    // malformed frame before it ever reaches the handler, and the handler's
+    // bound check remains as defence in depth rather than the only check.
+    // Carries no identity field, for the same reason SET_READY does not: the
+    // acting seat — and its host authority — is resolved from the
+    // connection binding (apps/party/src/auth.ts seatFor), never trusted
+    // from the message body.
+    count: z.number().int().min(1).max(4),
+  }),
+  z.object({
+    type: z.literal('KICK'),
+    // KICK carries a seat index, not a playerId — the target is a position
+    // in the room's own seats array, so there is no identity string a
+    // client could forge into referring to someone else's seat. Bounded
+    // 0..3 (MAX_SEAT_COUNT - 1) at the schema layer; the handler further
+    // refuses an index outside the *current* seats array.
+    seatIndex: z.number().int().min(0).max(3),
+  }),
+  z.strictObject({
+    type: z.literal('CHAT_SEND'),
+    // Built with z.strictObject, not z.object, so an extra field (e.g. a
+    // client-supplied codename) is a parse failure rather than silently
+    // stripped (T-03-13). Carries no codename, playerId, seatIndex, or
+    // agentId field — the sender's codename is always resolved server-side
+    // from seatFor(connectionId).codename, per D-11.
+    //
+    // Exactly one of `text`/`promptId` is present — enforced by the
+    // superRefine below, not by two separate discriminatedUnion members
+    // (a second `{ type: 'CHAT_SEND', ... }` member cannot coexist in a
+    // union keyed on `type`). `promptId` is a bounded integer index into
+    // FLAVOR_PROMPTS, never prompt text itself — the client can only ever
+    // select a reviewed line, never author one through this path (T-03-17).
+    text: z.string().min(1).max(CHAT_TEXT_MAX).optional(),
+    promptId: z.number().int().min(0).max(FLAVOR_PROMPTS.length - 1).optional(),
+  }),
+]).superRefine((data, ctx) => {
+  if (data.type !== 'CHAT_SEND') return;
+  const hasText = data.text !== undefined;
+  const hasPrompt = data.promptId !== undefined;
+  if (hasText === hasPrompt) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Provide exactly one of text or promptId.',
+    });
+  }
+});
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
+
+// CHAT_SEND deliberately carries no codename/playerId/seatIndex/agentId
+// field either, for the same reason as every other message above (D-11): the
+// acting seat — and its codename — is always resolved from the connection
+// binding (apps/party/src/auth.ts seatFor), never trusted from the message
+// body. Unlike the others, this one enforces it with z.strictObject rather
+// than relying on the field simply not existing, since chat is the first
+// surface in this codebase carrying free-form human text.
 
 // SUBMIT_ORDER, like SET_READY and SET_CODENAME, carries no playerId — the
 // acting seat is resolved from the connection binding (apps/party/src/auth.ts
@@ -132,6 +217,18 @@ const orderRejectionCodeSchema = z.enum([
  * A single lobby seat, public-by-construction: no field here can hold agent
  * positions, safehouse, traps, or cooldowns. Safe to fan out to every
  * connection in the room without a per-recipient projection.
+ *
+ * `aiReadout` and `disconnected` (Phase 3 Plan 4) are the one exception to
+ * "nothing derived from a bot's identity crosses the wire" that this comment
+ * used to imply — and it is a deliberate one. A personality's name and title
+ * are explicitly NOT hidden state: `docs/AI_OPPONENTS.md` publishes every
+ * personality's habits and documented exploitable tell, and LOBBY-07
+ * requires the readout string. This is unlike agent positions, safehouse,
+ * traps and cooldowns — none of which any field on this schema can hold.
+ * `aiReadout` carries the pre-formatted "{Name} the {Title}" string (never a
+ * raw personality id, which would just be a second, unstyled way to say the
+ * same thing); `disconnected` is true only while a live grace-period entry
+ * exists for the seat (Task 2).
  */
 export const lobbySeatSchema = z.object({
   index: z.number().int().min(0),
@@ -140,6 +237,8 @@ export const lobbySeatSchema = z.object({
   faction: sectorSchema,
   kind: seatKindSchema,
   ready: z.boolean(),
+  aiReadout: z.string().nullable(),
+  disconnected: z.boolean(),
 });
 export type LobbySeat = z.infer<typeof lobbySeatSchema>;
 
@@ -159,6 +258,46 @@ export const lobbySnapshotSchema = z.object({
   startsAt: z.number().nullable(),
 });
 export type LobbySnapshot = z.infer<typeof lobbySnapshotSchema>;
+
+/**
+ * The lobby-directory party (Phase 3, HOME-03) — a second, singleton
+ * Durable Object every match room pushes its public metadata into, so a
+ * player with no join code can browse open lobbies. `DIRECTORY_ROOM_ID` is
+ * the one room id this party ever serves; there is exactly one directory
+ * per deployment, never one per match.
+ */
+export const DIRECTORY_PARTY_NAME = 'directory';
+export const DIRECTORY_ROOM_ID = 'lobby-directory';
+
+/**
+ * The directory's one row shape, and — by construction — the entirety of
+ * what it is allowed to know about a lobby. Built with `z.strictObject` so
+ * an unrecognised key is a parse failure rather than a silently-dropped
+ * field: this is the schema-level enforcement of P-3-01 (this plan's
+ * threat register T-03-01) — the directory fans out to strangers who are
+ * not in the room, so no field beyond these four may ever be added here.
+ */
+export const directoryEntrySchema = z.strictObject({
+  code: z.string(),
+  seatsFilled: z.number().int().min(0).max(4),
+  seatsTotal: z.number().int().min(1).max(4),
+  hostCodename: codenameSchema,
+});
+export type DirectoryEntry = z.infer<typeof directoryEntrySchema>;
+
+/**
+ * The party-to-party body `syncDirectory` POSTs to the directory — not a
+ * client message, and never reachable from `clientMessageSchema`. Also
+ * `z.strictObject`-built for the same reason as `directoryEntrySchema`
+ * above: this is the directory's one untrusted-input boundary (03-RESEARCH.md
+ * Security Domain), and the caller being this project's own code does not
+ * make it trusted.
+ */
+export const directoryCommandSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('UPSERT'), entry: directoryEntrySchema }),
+  z.strictObject({ type: z.literal('REMOVE'), code: z.string() }),
+]);
+export type DirectoryCommand = z.infer<typeof directoryCommandSchema>;
 
 export const serverMessageSchema = z.discriminatedUnion('type', [
   z.object({
@@ -233,6 +372,49 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     // The joined engine violation text (LoadoutViolation.message), already
     // human-readable — modelled on ORDER_REJECTED's message field.
     message: z.string(),
+  }),
+  z.object({
+    type: z.literal('DIRECTORY_STATE'),
+    // The directory party's own broadcast — every entry it currently holds,
+    // insertion-order preserved. Never carries anything beyond
+    // directoryEntrySchema's four fields (P-3-01).
+    lobbies: z.array(directoryEntrySchema),
+  }),
+  z.object({
+    type: z.literal('SET_SEAT_COUNT_REJECTED'),
+    // Deliberately no SET_SEAT_COUNT_ACK exists — success is signalled by
+    // the next ROOM_STATE broadcast whose snapshot.seats.length is the new
+    // count, exactly how SET_READY already signals success with no ack of
+    // its own. Only the rejection needs a dedicated message, matching the
+    // LOADOUT_REJECTED precedent.
+    message: z.string(),
+  }),
+  z.object({
+    type: z.literal('KICKED'),
+    // Targeted at exactly one connection via sendTo — never room-wide fan
+    // out. Carries only a fixed human-readable reason, no seat index, no
+    // other player's identity, no room state (T-03-11).
+    reason: z.string(),
+  }),
+  z.object({
+    type: z.literal('CHAT_MESSAGE'),
+    // Room-wide fan-out via apps/party/src/broadcast.ts sendChat — one
+    // identical payload to every connection, never per-recipient (T-03-14,
+    // prohibition P-3-02).
+    message: chatMessageSchema,
+  }),
+  z.object({
+    type: z.literal('CHAT_REJECTED'),
+    message: z.string(),
+  }),
+  z.object({
+    type: z.literal('CHAT_HISTORY'),
+    // Targeted at exactly one connection (the joining/reconnecting seat) via
+    // broadcast.ts's sendChatHistory, never room-wide fan-out — but carries
+    // exactly the messages every other connection already received, so it
+    // introduces no per-recipient variation of the kind P-3-02 forbids.
+    scope: chatScopeSchema,
+    messages: z.array(chatMessageSchema),
   }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

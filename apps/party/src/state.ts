@@ -2,12 +2,15 @@ import { SECTORS } from '@berlin/shared';
 import type {
   AgentOrder,
   CardId,
+  ChatMessage,
   Difficulty,
   GameState,
   LobbySeat,
   LobbySnapshot,
   PersonalityId,
+  Sector,
 } from '@berlin/shared';
+import { aiReadoutFor } from './readout.js';
 
 /**
  * RoomState.phase is a room-local lifecycle concept
@@ -19,8 +22,16 @@ import type {
  */
 export type RoomPhase = 'LOBBY' | 'LOADOUT' | 'IN_GAME' | 'ENDED';
 
-/** Seat count is fixed at 4 for Phase 1 — host seat-count control is Phase 3. */
-export const SEAT_COUNT = 4;
+/** The seat count a new room opens at. D-04 (Phase 3) lets the host move it
+ *  anywhere between MIN_SEAT_COUNT and MAX_SEAT_COUNT before the match
+ *  starts — see canSetSeatCount/setSeatCount below. No longer fixed. */
+export const DEFAULT_SEAT_COUNT = 4;
+
+/** The floor a host can never set the room below (LOBBY-01). */
+export const MIN_SEAT_COUNT = 1;
+
+/** The ceiling a host can never set the room above (LOBBY-01). */
+export const MAX_SEAT_COUNT = 4;
 
 /** 10 seconds — long enough for a player who mis-clicks Ready in a
  *  four-seat lobby to notice and un-ready before the match actually
@@ -30,18 +41,42 @@ export const COUNTDOWN_DURATION_MS = 10_000;
 /**
  * A lobby seat extended with server-only fields. `token` and `connectionId`
  * never cross the wire — toSnapshot() strips both before a ROOM_STATE frame
- * is built.
+ * is built. `aiReadout` and `disconnected` are deliberately Omit'd from the
+ * base `LobbySeat` shape here — they are output-only values toSnapshot()
+ * derives fresh on every call (from `personality`/`controlledBy` and from
+ * `disconnectedSeats` respectively), never stored fields a RoomSeat itself
+ * carries.
  */
-export interface RoomSeat extends LobbySeat {
+export interface RoomSeat extends Omit<LobbySeat, 'aiReadout' | 'disconnected'> {
   /** Room-minted opaque token binding a future connection to this seat. */
   token: string | null;
   /** The live connection currently bound to this seat, if any. */
   connectionId: string | null;
-  /** Server-only, never in toSnapshot() — LOBBY-07's AI name/personality
-   *  readout is Phase 3 scope. Populated only for BOT seats, by
-   *  fillEmptySeatsWithBots at match start. */
+  /** Server-only, never in toSnapshot() directly — the public
+   *  `aiReadoutFor(seat)` string derived from it is what crosses the wire
+   *  (LOBBY-07). Populated for a lobby-fill BOT seat by
+   *  fillEmptySeatsWithBots at match start, and for a HUMAN-kind seat by
+   *  takeOverSeat (Task 3, D-08) after its disconnect grace period expires. */
   personality: PersonalityId | null;
   difficulty: Difficulty | null;
+  /**
+   * Who is *currently* deciding this seat's orders — deliberately distinct
+   * from `kind`, which records only how the seat *originated* (a human join
+   * or a lobby-fill bot) and never changes after that. `controlledBy` is
+   * null for an OPEN seat, `'HUMAN'` for any seat a player is actively
+   * driving, and `'AI'` for both a lobby-fill bot seat and a HUMAN-kind seat
+   * whose player dropped and whose disconnect grace period expired
+   * (Task 2/3, D-07/D-08). A reclaim flips a taken-over HUMAN-kind seat's
+   * `controlledBy` back to `'HUMAN'` while `kind`, `playerId`, `token` and
+   * `codename` stay exactly as they were — that preservation is what lets a
+   * later reclaim find the seat again. Every place in this codebase that
+   * used to ask "is this seat a bot" via `kind` must now ask "is this seat
+   * currently AI-driven" via `controlledBy` instead; `kind` remains correct
+   * only for questions about the seat's origin (e.g. `buildMatchConfig`'s
+   * `SeatConfig.kind`, which must not retroactively change when a mid-match
+   * takeover fires).
+   */
+  controlledBy: 'HUMAN' | 'AI' | null;
   /** Server-only, never in toSnapshot()/LobbySeat/lobbySeatSchema — a
    *  loadout is hidden pre-match information (02-RESEARCH.md Pitfall 5,
    *  docs/GAME_DESIGN.md §6.3: card *usage* is public, card *possession*
@@ -76,7 +111,48 @@ export interface RoomState {
    *  into pendingOrders — apps/party/src/bots.ts decideForBotSeats fills
    *  this, releaseBotSubmissions drains it. Empty outside IN_GAME. */
   botSubmissions: BotSubmission[];
+  /** Two separate, phase-scoped, bounded logs (D-10) — apps/party/src/chat.ts
+   *  owns chatScopeFor/appendChat, the sole authority for which scope a
+   *  message lands in and how the log is trimmed. Never derived into
+   *  toSnapshot(); chat travels on its own CHAT_MESSAGE/CHAT_HISTORY frames. */
+  chat: { readonly LOBBY: ChatMessage[]; readonly MATCH: ChatMessage[] };
+  /** Every seat currently inside its post-disconnect grace window (D-07,
+   *  Task 2) — apps/party/src/timers.ts owns scheduleDisconnectGrace/
+   *  clearDisconnectGrace/expiredGraceSeats, the sole authority for this
+   *  array's contents. Purely additive to the room's alarm scheduling: none
+   *  of those three functions may read or write deadlineAt/deadlineRound
+   *  (prohibition P-3-03) — a grace entry is only ever an extra candidate
+   *  in room.ts's alarmTarget() Math.min. Empty outside a live disconnect. */
+  disconnectedSeats: DisconnectedSeat[];
 }
+
+/**
+ * One seat's post-disconnect grace window, modelled field-for-field on
+ * BotSubmission below — same absolute-ms-timestamp convention
+ * (`graceExpiresAt`, never a remaining duration), so every client renders
+ * from (or, for the room, schedules from) the same server-authoritative
+ * number. `playerId` is captured at schedule time so a later expiry can
+ * still identify the seat even if something else about it changed.
+ */
+export interface DisconnectedSeat {
+  readonly seatIndex: number;
+  readonly playerId: string;
+  readonly graceExpiresAt: number;
+}
+
+/**
+ * 20 seconds — long enough to survive a page refresh plus a WebSocket
+ * reconnect and a brief network blip, short enough that a match does not
+ * visibly stall waiting on someone who isn't coming back. No source
+ * artifact specifies a value (D-07 explicitly leaves it to the planner),
+ * chosen in the same spirit as COUNTDOWN_DURATION_MS above. Per
+ * 03-RESEARCH.md Pitfall 3 / Assumption A1, this is a LOWER BOUND on the
+ * total reclaim window, not an exact one — onClose on an abrupt network
+ * drop (a pulled cable, a crashed tab) fires on a platform-level timeout
+ * this project does not control, so the real window a player has to
+ * reconnect before AI takes over can run longer than 20s in practice.
+ */
+export const DISCONNECT_GRACE_MS = 20_000;
 
 /** One bot seat's already-decided order for the current round, queued for
  *  release once its padded think-time elapses (T-1-14 — a bot seat is not
@@ -89,9 +165,12 @@ export interface BotSubmission {
   readonly releaseAt: number;
 }
 
-/** Four open seats, one per SECTORS entry, in index order. */
-export function emptySeats(): RoomSeat[] {
-  return SECTORS.slice(0, SEAT_COUNT).map((faction, index) => ({
+/** One open seat at `index` for `faction` — the shape every seat starts in
+ *  and the shape vacateSeat (Task 2) resets a kicked seat back to. Kept as
+ *  its own function so emptySeats() and setSeatCount()'s seat-growth branch
+ *  never duplicate this literal. */
+function openSeat(index: number, faction: Sector): RoomSeat {
+  return {
     index,
     playerId: null,
     codename: null,
@@ -102,8 +181,15 @@ export function emptySeats(): RoomSeat[] {
     connectionId: null,
     personality: null,
     difficulty: null,
+    controlledBy: null,
     loadout: null,
-  }));
+  };
+}
+
+/** `count` open seats (default DEFAULT_SEAT_COUNT), one per SECTORS entry,
+ *  in index order. */
+export function emptySeats(count: number = DEFAULT_SEAT_COUNT): RoomSeat[] {
+  return SECTORS.slice(0, count).map((faction, index) => openSeat(index, faction));
 }
 
 /**
@@ -157,6 +243,91 @@ export function setLoadout(state: RoomState, playerId: string, cards: CardId[]):
   };
 }
 
+/**
+ * The lowest seat count that would strand no occupied seat — the highest
+ * *index* among seats whose `kind` is not `OPEN`, plus one, or
+ * MIN_SEAT_COUNT when no seat is occupied. Deliberately the highest
+ * occupied *index*, not the *count* of occupied seats: a prior kick
+ * (Task 2's vacateSeat) can leave an occupied seat above an open one — e.g.
+ * seats 0 and 2 occupied, seat 1 open — and a count-based threshold (2, in
+ * that example) would then let the host shrink the room to 2 seats and
+ * silently truncate the player sitting in seat 2. That is exactly the
+ * ejection-by-seat-count-change D-05 forbids, so the threshold must track
+ * the highest surviving index, not how many seats happen to be filled.
+ */
+export function minSeatCount(state: RoomState): number {
+  let highestOccupied = -1;
+  for (const seat of state.seats) {
+    if (seat.kind !== 'OPEN' && seat.index > highestOccupied) highestOccupied = seat.index;
+  }
+  return highestOccupied === -1 ? MIN_SEAT_COUNT : highestOccupied + 1;
+}
+
+/**
+ * The single server-side authority for whether a seat-count change is
+ * legal (D-04, D-05) — handleSetSeatCount calls this and nothing
+ * re-derives the rule. The wire schema's own 1..4 bound (packages/shared/src/protocol.ts)
+ * is defence in depth, not a substitute for this check.
+ */
+export function canSetSeatCount(state: RoomState, count: number): boolean {
+  return (
+    Number.isInteger(count) &&
+    count >= MIN_SEAT_COUNT &&
+    count <= MAX_SEAT_COUNT &&
+    count >= minSeatCount(state) &&
+    (state.phase === 'LOBBY' || state.phase === 'LOADOUT')
+  );
+}
+
+/**
+ * Resizes the room to `count` seats. Returns `state` unchanged — by
+ * reference — when the change is illegal (canSetSeatCount is false) or
+ * already applied (state.seats.length === count): the latter is what makes
+ * a repeated identical value a genuine reference-equal no-op, which
+ * room.ts's existing reference-distinct broadcast guard then turns into "no
+ * duplicate ROOM_STATE frame". Shrinking slices the existing seats down;
+ * growing appends freshly-built OPEN seats for the new indices, each
+ * faction drawn from SECTORS at that index (openSeat/emptySeats' own
+ * convention). Always re-derives the countdown threshold afterward — a
+ * shrinking room changes the filled-seat denominator readyRatio divides by,
+ * exactly like every other lobby mutation that already re-derives it.
+ */
+export function setSeatCount(state: RoomState, count: number, now: number): RoomState {
+  if (!canSetSeatCount(state, count) || state.seats.length === count) return state;
+
+  const seats =
+    count < state.seats.length
+      ? state.seats.slice(0, count)
+      : [
+          ...state.seats,
+          ...SECTORS.slice(state.seats.length, count).map((faction, i) =>
+            openSeat(state.seats.length + i, faction),
+          ),
+        ];
+
+  return recomputeCountdown({ ...state, seats }, now, COUNTDOWN_DURATION_MS);
+}
+
+/**
+ * Resets the seat at `seatIndex` back to the OPEN shape openSeat()/emptySeats()
+ * build — playerId, codename, token, connectionId, personality, difficulty
+ * and loadout all null, ready false — while `index` and `faction` are
+ * preserved unchanged. Seat order is assigned once at join time and is
+ * never re-sorted (see the file header comment above), so vacating leaves a
+ * hole in the array rather than compacting it; minSeatCount() above is what
+ * makes that hole safe — it refuses to shrink the room below the highest
+ * remaining occupied index, so a hole below an occupied seat never becomes
+ * an ejection.
+ */
+export function vacateSeat(state: RoomState, seatIndex: number): RoomState {
+  return {
+    ...state,
+    seats: state.seats.map((seat) =>
+      seat.index === seatIndex ? openSeat(seat.index, seat.faction) : seat,
+    ),
+  };
+}
+
 /** Ready filled seats over total filled seats. Total function — an
  *  entirely-open room returns 0 rather than dividing by zero. Open seats
  *  count in neither the numerator nor the denominator. */
@@ -195,8 +366,13 @@ export function recomputeCountdown(state: RoomState, now: number, durationMs: nu
   return state;
 }
 
-/** Strips server-only fields (token, connectionId) for the wire. */
+/** Strips server-only fields (token, connectionId, personality, difficulty,
+ *  controlledBy, loadout) for the wire, replacing personality with the
+ *  formatted `aiReadout` string and folding a live disconnect-grace entry
+ *  into `disconnected` — the only two personality/connection-derived values
+ *  that ever cross the wire (LOBBY-06, LOBBY-07). */
 export function toSnapshot(state: RoomState): LobbySnapshot {
+  const disconnectedIndices = new Set(state.disconnectedSeats.map((d) => d.seatIndex));
   return {
     code: state.code,
     phase: state.phase,
@@ -209,6 +385,8 @@ export function toSnapshot(state: RoomState): LobbySnapshot {
       faction: seat.faction,
       kind: seat.kind,
       ready: seat.ready,
+      aiReadout: aiReadoutFor(seat),
+      disconnected: disconnectedIndices.has(seat.index),
     })),
   };
 }

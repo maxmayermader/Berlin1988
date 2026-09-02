@@ -7,9 +7,11 @@ import { Board } from '../../../components/board/Board.js';
 import { LockedInRow } from '../../../components/hud/LockedInRow.js';
 import { RoundClock } from '../../../components/hud/RoundClock.js';
 import { SubmittedCount } from '../../../components/hud/SubmittedCount.js';
+import { MatchChat } from '../../../components/match/MatchChat.js';
 import { OrderComposer } from '../../../components/orders/OrderComposer.js';
 import { ResultScreen } from '../../../components/result/ResultScreen.js';
 import { StepThrough } from '../../../components/resolution/StepThrough.js';
+import { useChatStore } from '../../../lib/chatStore.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { useMatchStore } from '../../../lib/matchStore.js';
 import {
@@ -20,7 +22,7 @@ import {
   emptyDraft,
   toAgentOrder,
 } from '../../../lib/orderDraft.js';
-import { submitOrder, useRoomSocket } from '../../../lib/socket.js';
+import { sendChat, sendChatPrompt, submitOrder, useRoomSocket } from '../../../lib/socket.js';
 import { useUiStore } from '../../../lib/uiStore.js';
 
 /** 01-UI-SPEC.md's exact copy for a dropped mid-match connection — an
@@ -51,11 +53,18 @@ export default function MatchPage() {
   const matchSubState = useUiStore((s) => s.matchSubState);
 
   const clockDeadline = useMatchStore((s) => s.clock.deadlineAt);
+  const matchChat = useChatStore((s) => s.messages.MATCH);
+  // Set from a CHAT_REJECTED frame, cleared on the next accepted
+  // CHAT_MESSAGE — mirrors the lobby route's own chatError discipline.
+  const [chatError, setChatError] = useState<string | null>(null);
 
-  const socket = useRoomSocket(code, identity.codename, (_message: ServerMessage) => {
+  const socket = useRoomSocket(code, identity.codename, (message: ServerMessage) => {
     // VIEW / ROUND_RESOLVED / OPPONENT_COMMITTED / ORDER_ACK / ORDER_REJECTED /
-    // CLOCK are already routed into matchStore by useRoomSocket itself; this
-    // route needs no lobby-only frames.
+    // CLOCK / CHAT_MESSAGE / CHAT_HISTORY are already routed into their
+    // stores by useRoomSocket itself; this route only needs CHAT_REJECTED,
+    // which carries no store of its own.
+    if (message.type === 'CHAT_REJECTED') setChatError(message.message);
+    if (message.type === 'CHAT_MESSAGE') setChatError(null);
   });
 
   useEffect(() => {
@@ -108,6 +117,14 @@ export default function MatchPage() {
     if (!view || !activeAgentId) return;
     const order = toAgentOrder(activeAgentId, draft);
     submitOrder(socket, view.round, activeAgentId, order.actions);
+  }
+
+  function handleSendChat(text: string) {
+    sendChat(socket, text);
+  }
+
+  function handleSendChatPrompt(promptId: number) {
+    sendChatPrompt(socket, promptId);
   }
 
   if (connectionStatus === 'lost') {
@@ -190,6 +207,12 @@ export default function MatchPage() {
           </div>
         )}
       </div>
+      <MatchChat
+        messages={matchChat}
+        onSend={handleSendChat}
+        onSendPrompt={handleSendChatPrompt}
+        error={chatError}
+      />
     </main>
   );
 }

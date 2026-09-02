@@ -6,13 +6,16 @@ import type { ClientMessage, LobbySnapshot, ServerMessage } from '@berlin/shared
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Deckbuilder } from '../../../components/deck/Deckbuilder.js';
+import { ChatPanel } from '../../../components/lobby/ChatPanel.js';
 import { CodenameEditor } from '../../../components/lobby/CodenameEditor.js';
 import { ReadyCountdown } from '../../../components/lobby/ReadyCountdown.js';
+import { SeatCountControl } from '../../../components/lobby/SeatCountControl.js';
 import { SeatList } from '../../../components/lobby/SeatList.js';
 import { Button } from '../../../components/ui/Button.js';
+import { useChatStore } from '../../../lib/chatStore.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { loadoutsDiverge, useLoadoutStore } from '../../../lib/loadoutStore.js';
-import { submitLoadout, useRoomSocket } from '../../../lib/socket.js';
+import { sendChat, sendChatPrompt, submitLoadout, useRoomSocket } from '../../../lib/socket.js';
 
 export default function LobbyPage() {
   const params = useParams<{ code: string }>();
@@ -36,10 +39,43 @@ export default function LobbyPage() {
   // 'accepted' value long after this editor has closed and reopened.
   const awaitingSaveCloseRef = useRef(false);
   const [editingLoadout, setEditingLoadout] = useState(false);
+  // Set from a SET_SEAT_COUNT_REJECTED frame, cleared on the next ROOM_STATE
+  // — mirrors the room's own "the next authoritative frame wins" discipline
+  // rather than a client-side timeout.
+  const [seatCountError, setSeatCountError] = useState<string | null>(null);
+  // A kick rejection is a generic ERROR frame (no dedicated KICK_REJECTED
+  // type — the plan's own reasoning is that a rare race is not worth a new
+  // message type), cleared the same way as seatCountError.
+  const [kickError, setKickError] = useState<string | null>(null);
+  // Set from a CHAT_REJECTED frame, cleared on the next accepted
+  // CHAT_MESSAGE — mirrors seatCountError/kickError's "the next
+  // authoritative frame wins" discipline.
+  const [chatError, setChatError] = useState<string | null>(null);
+  const lobbyChat = useChatStore((s) => s.messages.LOBBY);
 
   const socket = useRoomSocket(code, identity.codename, (message: ServerMessage) => {
-    if (message.type === 'ROOM_STATE') setSnapshot(message.snapshot);
+    if (message.type === 'ROOM_STATE') {
+      setSnapshot(message.snapshot);
+      setSeatCountError(null);
+      setKickError(null);
+    }
     if (message.type === 'JOINED') setPlayerId(message.playerId);
+    if (message.type === 'SET_SEAT_COUNT_REJECTED') setSeatCountError(message.message);
+    // The lobby page's only ERROR source once joined is a rejected KICK
+    // (order-related ERROR codes never fire pre-match) — shown as the
+    // UI-SPEC's kick-rejected copy rather than the server's own message,
+    // since a rare race (target already left) is the one case this covers.
+    if (message.type === 'ERROR') {
+      setKickError("Couldn't remove that player — they may have already left.");
+    }
+    // Mirrors the existing IN_GAME redirect below — driven from a server
+    // frame rather than a locally guessed condition. socket.ts already
+    // called markKicked() before this callback runs.
+    if (message.type === 'KICKED') {
+      router.push('/');
+    }
+    if (message.type === 'CHAT_REJECTED') setChatError(message.message);
+    if (message.type === 'CHAT_MESSAGE') setChatError(null);
   });
 
   useEffect(() => {
@@ -80,6 +116,19 @@ export default function LobbyPage() {
   }, [snapshot?.phase, code, router]);
 
   const mySeat = snapshot?.seats.find((seat) => seat.playerId === playerId) ?? null;
+  const isHost = snapshot !== null && snapshot.hostPlayerId === playerId;
+  // UX mirror only — apps/party/src/state.ts's canSetSeatCount is the
+  // authority. This exists solely to grey a control the server would refuse
+  // anyway, computed identically from the public snapshot the client
+  // already has (highest non-OPEN seat index + 1, or 1).
+  const minAllowed = (() => {
+    if (!snapshot) return 1;
+    let highestOccupied = -1;
+    for (const seat of snapshot.seats) {
+      if (seat.kind !== 'OPEN' && seat.index > highestOccupied) highestOccupied = seat.index;
+    }
+    return highestOccupied === -1 ? 1 : highestOccupied + 1;
+  })();
 
   function send(message: ClientMessage) {
     socket.send(JSON.stringify(clientMessageSchema.parse(message)));
@@ -88,6 +137,14 @@ export default function LobbyPage() {
   function toggleReady() {
     if (!mySeat) return;
     send({ type: 'SET_READY', ready: !mySeat.ready });
+  }
+
+  function selectSeatCount(count: number) {
+    send({ type: 'SET_SEAT_COUNT', count });
+  }
+
+  function kickSeat(seatIndex: number) {
+    send({ type: 'KICK', seatIndex });
   }
 
   function renameCodename(codename: string) {
@@ -114,6 +171,14 @@ export default function LobbyPage() {
   function handleSave() {
     awaitingSaveCloseRef.current = true;
     submitLoadout(socket, loadout);
+  }
+
+  function handleSendChat(text: string) {
+    sendChat(socket, text);
+  }
+
+  function handleSendChatPrompt(promptId: number) {
+    sendChatPrompt(socket, promptId);
   }
 
   const showDivergenceNotice = !editingLoadout && loadoutsDiverge(loadout, lastAcceptedCards);
@@ -145,7 +210,22 @@ export default function LobbyPage() {
               onSubmit={renameCodename}
             />
           )}
-          <SeatList snapshot={snapshot} onToggleReady={toggleReady} myPlayerId={playerId} />
+          <div className="flex flex-col gap-4">
+            <SeatCountControl
+              current={snapshot.seats.length}
+              minAllowed={minAllowed}
+              isHost={isHost}
+              error={seatCountError}
+              onSelect={selectSeatCount}
+            />
+            <SeatList
+              snapshot={snapshot}
+              onToggleReady={toggleReady}
+              myPlayerId={playerId}
+              onKick={isHost ? kickSeat : undefined}
+            />
+            {kickError && <p className="text-sm text-[#dc2626]">{kickError}</p>}
+          </div>
           {mySeat && (
             <div className="flex gap-2">
               <Button onClick={toggleReady}>{mySeat.ready ? 'Ready ✓' : 'Ready Up'}</Button>
@@ -160,6 +240,12 @@ export default function LobbyPage() {
             </p>
           )}
           <ReadyCountdown snapshot={snapshot} />
+          <ChatPanel
+            messages={lobbyChat}
+            onSend={handleSendChat}
+            onSendPrompt={handleSendChatPrompt}
+            error={chatError}
+          />
         </>
       )}
     </main>

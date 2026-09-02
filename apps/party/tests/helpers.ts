@@ -1,7 +1,14 @@
-import type { ClientMessage, ServerMessage } from '@berlin/shared';
+import {
+  DIRECTORY_PARTY_NAME,
+  directoryCommandSchema,
+  type ClientMessage,
+  type DirectoryCommand,
+  type ServerMessage,
+} from '@berlin/shared';
 import type * as Party from 'partykit/server';
 import { vi } from 'vitest';
 import { bindConnection } from '../src/auth.js';
+import LobbyDirectory from '../src/directory.js';
 import MatchRoom from '../src/room.js';
 import type { BotSubmission, RoomState } from '../src/state.js';
 
@@ -56,6 +63,14 @@ export interface TestConnection {
   send(message: ClientMessage): Promise<void>;
   /** The most recently received frame, if any. */
   last(): ServerMessage | undefined;
+  /** Simulates this connection dropping — invokes the room's onClose
+   *  handler directly with this connection, exactly like a real closed
+   *  WebSocket would (03-04-PLAN.md Task 2). The connection is removed from
+   *  the room's connection set first, mirroring PartyKit's own behaviour
+   *  (a closed connection no longer appears in room.getConnections() by the
+   *  time onClose runs), so any sendLobby the handler triggers cannot
+   *  attempt to write back to this now-dead connection. */
+  close(): Promise<void>;
 }
 
 export interface TestRoom {
@@ -92,6 +107,24 @@ export interface TestRoom {
    * a real Durable Object's own getAlarm() would report.
    */
   alarmScheduled(): Promise<boolean>;
+  /** The fake Durable Object storage's raw scheduled alarm time, or null —
+   *  unlike alarmScheduled()'s boolean, this exposes the actual target so a
+   *  test can assert WHICH candidate (a round deadline, a bot release, a
+   *  countdown, or — Task 2 — a disconnect-grace expiry) won the room's
+   *  single-slot Math.min (03-04-PLAN.md Task 2). */
+  alarmAt(): Promise<number | null>;
+  /** Every DirectoryCommand this room's syncDirectory() calls have
+   *  successfully parsed and sent to the fake directory party, in send
+   *  order — 03-01-PLAN.md Task 1. */
+  directoryCommands(): DirectoryCommand[];
+  /** Simulates PartyKit's documented onAlarm-context limitation: while
+   *  `broken` is true, this room's `context` getter throws on access,
+   *  exactly like a real Durable Object's `room.context.parties` inside
+   *  onAlarm. syncDirectory's own try/catch must swallow that throw — Task
+   *  2's self-heal test flips this on, drives the room to IN_GAME, then
+   *  flips it back off before asserting the next message heals the
+   *  directory's stale entry. */
+  setDirectoryBroken(broken: boolean): void;
 }
 
 let seq = 0;
@@ -111,11 +144,52 @@ let seq = 0;
 export function createTestRoom(id = 'test-room'): TestRoom {
   const connections = new Map<string, FakeConnection>();
   const storage = new FakeStorage();
+  const directoryCommandLog: DirectoryCommand[] = [];
+  let directoryBroken = false;
 
+  /**
+   * A minimal fake of `room.context.parties[DIRECTORY_PARTY_NAME]` — just
+   * enough surface for directoryClient.ts's syncDirectory to POST against
+   * (`.get(id).fetch(init)`), recording every successfully-parsed
+   * DirectoryCommand it receives rather than forwarding it to a real
+   * LobbyDirectory instance (createTestDirectory below exercises that class
+   * directly). `context` is a getter, not a plain field, so
+   * setDirectoryBroken can make *accessing* it throw — mirroring PartyKit's
+   * documented onAlarm-context limitation, not merely a failed fetch.
+   */
   const fakeRoom = {
     id,
     storage,
     getConnections: () => connections.values(),
+    get context() {
+      if (directoryBroken) {
+        throw new Error('context unavailable (onAlarm limitation, simulated)');
+      }
+      return {
+        parties: {
+          [DIRECTORY_PARTY_NAME]: {
+            get(_directoryRoomId: string) {
+              return {
+                async fetch(pathOrInit?: unknown): Promise<Response> {
+                  const init = pathOrInit as { body?: unknown } | undefined;
+                  const raw = typeof init?.body === 'string' ? init.body : '';
+                  let json: unknown;
+                  try {
+                    json = JSON.parse(raw);
+                  } catch {
+                    return new Response(null, { status: 400 });
+                  }
+                  const parsed = directoryCommandSchema.safeParse(json);
+                  if (!parsed.success) return new Response(null, { status: 400 });
+                  directoryCommandLog.push(parsed.data);
+                  return new Response(null, { status: 204 });
+                },
+              };
+            },
+          },
+        },
+      };
+    },
   } as unknown as Party.Room;
 
   const instance = new MatchRoom(fakeRoom);
@@ -127,6 +201,15 @@ export function createTestRoom(id = 'test-room'): TestRoom {
     },
     async alarmScheduled(): Promise<boolean> {
       return (await storage.getAlarm()) !== null;
+    },
+    async alarmAt(): Promise<number | null> {
+      return storage.getAlarm();
+    },
+    directoryCommands(): DirectoryCommand[] {
+      return [...directoryCommandLog];
+    },
+    setDirectoryBroken(broken: boolean): void {
+      directoryBroken = broken;
     },
     async triggerAlarm(): Promise<void> {
       await instance.onAlarm?.();
@@ -196,6 +279,78 @@ export function createTestRoom(id = 'test-room'): TestRoom {
             fakeConnection as unknown as Party.Connection,
           );
         },
+        last(): ServerMessage | undefined {
+          return received[received.length - 1];
+        },
+        async close(): Promise<void> {
+          connections.delete(connId);
+          await instance.onClose?.(fakeConnection as unknown as Party.Connection);
+        },
+      };
+    },
+  };
+}
+
+export interface TestDirectoryConnection {
+  readonly id: string;
+  readonly received: ServerMessage[];
+  /** The most recently received frame, if any. */
+  last(): ServerMessage | undefined;
+}
+
+export interface TestDirectory {
+  /** Invokes LobbyDirectory.onRequest directly with a POST body. `body` is
+   *  JSON.stringify'd automatically unless it's already a string — passing
+   *  a raw string lets hostile-input tests (Task 3) send genuinely
+   *  malformed bodies that no well-typed DirectoryCommand could produce. */
+  post(body: unknown, method?: string): Promise<Response>;
+  /** Invokes LobbyDirectory.onConnect against a recording fake connection
+   *  and returns it — the connection's first received frame is always the
+   *  DIRECTORY_STATE snapshot onConnect sends. */
+  connect(): TestDirectoryConnection;
+}
+
+/**
+ * A much smaller harness than createTestRoom's: the directory has no
+ * seats, no alarm, no bot loop — just onRequest and onConnect over its own
+ * fake room + FakeStorage. onStart is not invoked here for the same reason
+ * createTestRoom skips it: a fresh LobbyDirectory's `entries` map already
+ * defaults to empty via its own field initializer, and every test either
+ * starts from that empty state or builds it up through `post()` calls made
+ * after this factory returns — there is nothing on disk yet to rehydrate.
+ */
+export function createTestDirectory(): TestDirectory {
+  const storage = new FakeStorage();
+  const connections = new Map<string, FakeConnection>();
+
+  const fakeRoom = {
+    id: 'lobby-directory',
+    storage,
+    getConnections: () => connections.values(),
+  } as unknown as Party.Room;
+
+  const instance = new LobbyDirectory(fakeRoom);
+
+  return {
+    async post(body: unknown, method = 'POST'): Promise<Response> {
+      const text = typeof body === 'string' ? body : JSON.stringify(body);
+      const req = { method, text: async () => text } as unknown as Party.Request;
+      return instance.onRequest(req);
+    },
+    connect(): TestDirectoryConnection {
+      const connId = `dir-conn-${++seq}`;
+      const received: ServerMessage[] = [];
+      const fakeConnection = {
+        id: connId,
+        send(payload: string) {
+          received.push(JSON.parse(payload) as ServerMessage);
+        },
+      };
+      connections.set(connId, fakeConnection);
+      instance.onConnect?.(fakeConnection as unknown as Party.Connection);
+      return {
+        id: connId,
+        received,
         last(): ServerMessage | undefined {
           return received[received.length - 1];
         },

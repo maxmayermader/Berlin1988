@@ -328,6 +328,7 @@ describe('apps/party/src/bots.ts decideForBotSeats / releaseBotSubmissions (Task
       connectionId: null,
       personality: s.personality ?? null,
       difficulty: s.difficulty ?? null,
+      controlledBy: s.kind === 'BOT' ? 'AI' : 'HUMAN',
       loadout: null,
     }));
     return {
@@ -341,6 +342,8 @@ describe('apps/party/src/bots.ts decideForBotSeats / releaseBotSubmissions (Task
       deadlineAt: null,
       deadlineRound: null,
       botSubmissions: [],
+      chat: { LOBBY: [], MATCH: [] },
+      disconnectedSeats: [],
     };
   }
 

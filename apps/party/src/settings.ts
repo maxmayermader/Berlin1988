@@ -16,6 +16,10 @@ export function buildMatchConfig(state: RoomState): MatchSettings {
     id: toPlayerId(seat.playerId ?? `empty-${seat.index}`),
     name: seat.codename ?? `Seat ${seat.index + 1}`,
     faction: seat.faction,
+    // Deliberately still reads seat.kind, not seat.controlledBy (audited in
+    // Plan 03-04 Task 1): this records how the seat originated for the
+    // match's own config, and a mid-match AI takeover (Task 3, D-08) must
+    // not retroactively change the SeatConfig a match was built from.
     kind: seat.kind === 'BOT' ? 'BOT' : 'HUMAN',
     personality: seat.personality ?? undefined,
     difficulty: seat.difficulty ?? undefined,

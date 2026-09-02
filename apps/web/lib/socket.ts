@@ -4,6 +4,8 @@ import { cardId, clientMessageSchema, serverMessageSchema } from '@berlin/shared
 import type { Action, CardId, ClientMessage, ServerMessage } from '@berlin/shared';
 import { PartySocket } from 'partysocket';
 import { usePartySocket } from 'partysocket/react';
+import { useChatStore } from './chatStore.js';
+import { markKicked } from './kicked.js';
 import { useLoadoutStore } from './loadoutStore.js';
 import { useMatchStore } from './matchStore.js';
 import { useUiStore } from './uiStore.js';
@@ -163,6 +165,15 @@ export function useRoomSocket(
         useLoadoutStore.getState().recordAccepted(message.cards.map(cardId));
       } else if (message.type === 'LOADOUT_REJECTED') {
         useLoadoutStore.getState().setSaveStatus({ state: 'rejected', message: message.message });
+      } else if (message.type === 'KICKED') {
+        // Marks the one-shot flag only — routing is a route's job, not
+        // socket.ts's (apps/web/lib/CLAUDE.md rule 1). The lobby route's own
+        // onMessage callback below does the actual router.push('/').
+        markKicked();
+      } else if (message.type === 'CHAT_MESSAGE') {
+        useChatStore.getState().append(message.message.scope, message.message);
+      } else if (message.type === 'CHAT_HISTORY') {
+        useChatStore.getState().replace(message.scope, message.messages);
       }
 
       onMessage(message);
@@ -213,5 +224,33 @@ export function submitLoadout(socket: PartySocket, cards: readonly CardId[]): vo
     return;
   }
   useLoadoutStore.getState().setSaveStatus({ state: 'pending' });
+  socket.send(JSON.stringify(parsed.data));
+}
+
+/**
+ * Sends free-text chat. Built exactly like submitOrder()/submitLoadout():
+ * construct the ClientMessage, Zod-parse it before it ever reaches the wire,
+ * and send only on success — a malformed payload (e.g. an over-length or
+ * empty text) never reaches the room. The room's own CHAT_REJECTED reply
+ * (rendered by the calling component) is the failure surface, not this
+ * function's return value.
+ */
+export function sendChat(socket: PartySocket, text: string): void {
+  const message: ClientMessage = { type: 'CHAT_SEND', text };
+  const parsed = clientMessageSchema.safeParse(message);
+  if (!parsed.success) return;
+  socket.send(JSON.stringify(parsed.data));
+}
+
+/**
+ * Sends a flavor-prompt selection. Built identically to sendChat: construct,
+ * safeParse, send only on success. The client never supplies prompt text —
+ * only the index — so the room, not this function, is what resolves it to
+ * FLAVOR_PROMPTS' reviewed line (T-03-17).
+ */
+export function sendChatPrompt(socket: PartySocket, promptId: number): void {
+  const message: ClientMessage = { type: 'CHAT_SEND', promptId };
+  const parsed = clientMessageSchema.safeParse(message);
+  if (!parsed.success) return;
   socket.send(JSON.stringify(parsed.data));
 }

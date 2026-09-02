@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   NOT_READY_BADGE_TEXT,
   READY_BADGE_TEXT,
+  RECONNECTING_LABEL,
   readySummary,
   seatRows,
   shouldShowCountdown,
@@ -15,6 +16,8 @@ function seat(overrides: Partial<LobbySeat> & { index: number }): LobbySeat {
     faction: 'RED',
     kind: 'OPEN',
     ready: false,
+    aiReadout: null,
+    disconnected: false,
     ...overrides,
   };
 }
@@ -43,15 +46,59 @@ describe('apps/web/lib/seatRows (pure view model)', () => {
     expect(rows[0]).toMatchObject({ kind: 'OPEN', badgeText: null, label: null });
   });
 
-  it('a BOT seat yields isAi true; a HUMAN seat yields isAi false', () => {
+  it('seatRows sets status AI and a non-null aiReadout for an AI-controlled seat, and status NORMAL with a null aiReadout for a human seat', () => {
     const rows = seatRows(
       snapshot([
-        seat({ index: 0, playerId: 'b0', codename: 'Marek', kind: 'BOT' }),
-        seat({ index: 1, playerId: 'p1', codename: 'Katja', kind: 'HUMAN' }),
+        seat({ index: 0, playerId: 'b0', codename: 'Marek', kind: 'BOT', aiReadout: 'Katja Reiner the Ghost' }),
+        seat({ index: 1, playerId: 'p1', codename: 'Katja', kind: 'HUMAN', aiReadout: null }),
       ]),
     );
-    expect(rows[0]!.isAi).toBe(true);
-    expect(rows[1]!.isAi).toBe(false);
+    expect(rows[0]!.status).toBe('AI');
+    expect(rows[0]!.aiReadout).toBe('Katja Reiner the Ghost');
+    expect(rows[1]!.status).toBe('NORMAL');
+    expect(rows[1]!.aiReadout).toBeNull();
+  });
+
+  it('two AI seats sharing one personality produce two rows with equal aiReadout and different indices — neither is merged or suppressed', () => {
+    const rows = seatRows(
+      snapshot([
+        seat({ index: 0, playerId: 'b0', codename: 'Katja', kind: 'BOT', aiReadout: 'Katja Reiner the Ghost' }),
+        seat({ index: 1, playerId: 'b1', codename: 'Katja', kind: 'BOT', aiReadout: 'Katja Reiner the Ghost' }),
+      ]),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.aiReadout).toBe(rows[1]!.aiReadout);
+    expect(rows[0]!.index).not.toBe(rows[1]!.index);
+    expect(rows[0]!.status).toBe('AI');
+    expect(rows[1]!.status).toBe('AI');
+  });
+
+  it('a disconnected HUMAN seat yields status RECONNECTING and badgeText RECONNECTING_LABEL, never the ready badge', () => {
+    const rows = seatRows(
+      snapshot([
+        seat({ index: 0, playerId: 'p0', codename: 'Vogel', kind: 'HUMAN', ready: false, disconnected: true }),
+      ]),
+    );
+    expect(rows[0]!.status).toBe('RECONNECTING');
+    expect(rows[0]!.badgeText).toBe(RECONNECTING_LABEL);
+    expect(rows[0]!.aiReadout).toBeNull();
+  });
+
+  it('a seat that is both disconnected and has a non-null aiReadout returns status AI, never RECONNECTING — never two states at once', () => {
+    const rows = seatRows(
+      snapshot([
+        seat({
+          index: 0,
+          playerId: 'p0',
+          codename: 'Vogel',
+          kind: 'HUMAN',
+          disconnected: true,
+          aiReadout: 'Katja Reiner the Ghost',
+        }),
+      ]),
+    );
+    expect(rows[0]!.status).toBe('AI');
+    expect(rows[0]!.aiReadout).toBe('Katja Reiner the Ghost');
   });
 
   it('preserves snapshot.seats array order exactly, before and after a ready toggle', () => {
@@ -93,5 +140,31 @@ describe('apps/web/lib/seatRows (pure view model)', () => {
       seat({ index: 2 }),
     ]);
     expect(seatRows(s)).toHaveLength(s.seats.length);
+  });
+
+  it("as the host, canKick is true on every occupied non-host row and false on the host's own row and every OPEN row", () => {
+    const s = snapshot([
+      seat({ index: 0, playerId: 'p0', codename: 'Vogel', kind: 'HUMAN' }),
+      seat({ index: 1, playerId: 'p1', codename: 'Katja', kind: 'HUMAN' }),
+      seat({ index: 2, playerId: 'b2', codename: 'Marek', kind: 'BOT' }),
+      seat({ index: 3 }),
+    ]);
+    const rows = seatRows(s, { playerId: 'p0' });
+    expect(rows[0]!.canKick).toBe(false); // host's own row
+    expect(rows[1]!.canKick).toBe(true); // occupied non-host row
+    expect(rows[2]!.canKick).toBe(true); // occupied non-host row (bot)
+    expect(rows[3]!.canKick).toBe(false); // OPEN row
+  });
+
+  it('as a non-host viewer (or with no viewer), canKick is false on every row', () => {
+    const s = snapshot([
+      seat({ index: 0, playerId: 'p0', codename: 'Vogel', kind: 'HUMAN' }),
+      seat({ index: 1, playerId: 'p1', codename: 'Katja', kind: 'HUMAN' }),
+    ]);
+    const asGuest = seatRows(s, { playerId: 'p1' });
+    expect(asGuest.every((r) => r.canKick === false)).toBe(true);
+
+    const noViewer = seatRows(s);
+    expect(noViewer.every((r) => r.canKick === false)).toBe(true);
   });
 });

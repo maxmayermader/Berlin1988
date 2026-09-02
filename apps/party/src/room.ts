@@ -3,21 +3,35 @@ import type { AIAgent } from '@berlin/ai';
 import { clientMessageSchema } from '@berlin/shared';
 import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
-import { decideForBotSeats, releaseBotSubmissions } from './bots.js';
-import { sendClock, sendCommitted, sendLobby, sendResolved, sendTo, sendViews } from './broadcast.js';
+import { decideForBotSeats, releaseBotSubmissions, takeOverSeat } from './bots.js';
 import {
+  sendChat,
+  sendChatHistory,
+  sendClock,
+  sendCommitted,
+  sendLobby,
+  sendResolved,
+  sendTo,
+  sendViews,
+} from './broadcast.js';
+import { seatFor } from './auth.js';
+import { syncDirectory } from './directoryClient.js';
+import {
+  handleChatSend,
   handleCreate,
   handleJoin,
+  handleKick,
   handleSetCodename,
   handleSetReady,
+  handleSetSeatCount,
   handleSubmitLoadout,
   handleSubmitOrder,
 } from './handlers.js';
 import { newJoinCode } from './joinCode.js';
 import { closeRound, shouldCloseRound } from './round.js';
 import { startMatch } from './settings.js';
-import type { RoomState } from './state.js';
-import { onRoundAlarm, scheduleRoundDeadline } from './timers.js';
+import { DISCONNECT_GRACE_MS, type RoomState } from './state.js';
+import { expiredGraceSeats, onRoundAlarm, scheduleDisconnectGrace, scheduleRoundDeadline } from './timers.js';
 
 const MINT_ROOM_ID = '_new';
 const STATE_KEY = 'state';
@@ -112,7 +126,9 @@ export default class MatchRoom implements Party.Server {
       await this.persist(result.state);
       if (result.state) await this.syncAlarm(result.state);
       sendTo(sender, result.toSender);
+      if (result.chatHistory) sendChatHistory(sender, result.chatHistory.scope, result.chatHistory.messages);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
+      await this.pushDirectory(result.state);
       return;
     }
 
@@ -121,7 +137,20 @@ export default class MatchRoom implements Party.Server {
       await this.persist(result.state);
       if (result.state) await this.syncAlarm(result.state);
       sendTo(sender, result.toSender);
+      if (result.chatHistory) sendChatHistory(sender, result.chatHistory.scope, result.chatHistory.messages);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
+      // D-08: a token-matched reclaim mid-match (state.phase IN_GAME) needs
+      // the reclaiming connection to receive its own projectView() VIEW —
+      // sendViews resolves each recipient's seat and calls projectView per
+      // connection, exactly the same chokepoint every other VIEW frame
+      // goes through, so the reclaiming player receives precisely what any
+      // other seat receives and nothing more (P-3-04). The room's
+      // `botAgents` cache — the stand-in's belief state — is never read
+      // here and has no serialisable accessor to read in the first place.
+      if (result.state?.phase === 'IN_GAME' && result.state.gameState) {
+        sendViews(this.room, result.state, result.state.gameState);
+      }
+      await this.pushDirectory(result.state);
       return;
     }
 
@@ -132,6 +161,7 @@ export default class MatchRoom implements Party.Server {
         await this.syncAlarm(next);
         sendLobby(this.room, next);
       }
+      await this.pushDirectory(next);
       return;
     }
 
@@ -142,6 +172,57 @@ export default class MatchRoom implements Party.Server {
         await this.syncAlarm(next);
         sendLobby(this.room, next);
       }
+      await this.pushDirectory(next);
+      return;
+    }
+
+    if (message.type === 'SET_SEAT_COUNT') {
+      // The first host-only message in the codebase (apps/party/CLAUDE.md
+      // rule 5). Modelled on the SET_READY branch above, with one addition:
+      // the returned state's reference identity is the broadcast guard —
+      // handleSetSeatCount/setSeatCount return the exact input `state` when
+      // the change is illegal or already applied, so a repeated identical
+      // value (or a rejected change) fires no duplicate ROOM_STATE or
+      // directory frame, while a genuine rejection reply still reaches the
+      // sender either way.
+      const before = this.state;
+      const result = handleSetSeatCount(this.state, message.count, sender.id, now);
+      await this.persist(result.state);
+      if (result.toSender) sendTo(sender, result.toSender);
+      if (result.state && result.state !== before) {
+        await this.syncAlarm(result.state);
+        sendLobby(this.room, result.state);
+        // Keeps the directory's seatsTotal in sync with a host-driven
+        // resize, exactly like every other seat/phase-affecting branch.
+        await this.pushDirectory(result.state);
+      }
+      return;
+    }
+
+    if (message.type === 'KICK') {
+      const before = this.state;
+      const result = handleKick(this.state, message.seatIndex, sender.id, now);
+      await this.persist(result.state);
+      if (result.toSender) sendTo(sender, result.toSender);
+      if (result.state && result.state !== before) {
+        await this.syncAlarm(result.state);
+        // The kicked player is told before the room is told — their client
+        // can begin its redirect while the remaining players' seat lists
+        // update from the same ROOM_STATE frame.
+        if (result.kickedConnectionId) {
+          const target = [...this.room.getConnections()].find(
+            (c) => c.id === result.kickedConnectionId,
+          );
+          if (target) {
+            sendTo(target, {
+              type: 'KICKED',
+              reason: 'You were removed from the lobby by the host.',
+            });
+          }
+        }
+        sendLobby(this.room, result.state);
+        await this.pushDirectory(result.state);
+      }
       return;
     }
 
@@ -151,6 +232,17 @@ export default class MatchRoom implements Party.Server {
       if (result.toSender) sendTo(sender, result.toSender);
       // No sendLobby here — a loadout write changes nothing in the public
       // snapshot (T-2-03), and no syncAlarm either — no timer changed.
+      return;
+    }
+
+    if (message.type === 'CHAT_SEND') {
+      const result = handleChatSend(this.state, message, sender.id, now, rng);
+      await this.persist(result.state);
+      if (result.toSender) sendTo(sender, result.toSender);
+      // No syncAlarm here — no timer changed. No sendLobby — the public
+      // lobby snapshot carries nothing derived from chat. No pushDirectory
+      // — the directory's four fields are unaffected by a chat message.
+      if (result.broadcast) sendChat(this.room, result.broadcast);
       return;
     }
 
@@ -172,12 +264,46 @@ export default class MatchRoom implements Party.Server {
         sendClock(this.room, closed);
       }
     }
+
+    // Self-heal for Pitfall 5 (room.context.parties is undocumented/unreliable
+    // inside onAlarm): SUBMIT_ORDER is the first inbound message a match
+    // reliably receives after startMatch moves the room to IN_GAME, so
+    // pushing here unconditionally re-attempts the onAlarm branch's REMOVE
+    // if that alarm-context directory write silently swallowed a throw.
+    await this.pushDirectory(result.state);
   }
 
-  onClose(): void {
-    // No reconnection handling in Phase 1 (D-11) — an accepted, documented
-    // gap, not a bug. A dropped connection simply leaves its seat bound to a
-    // now-dead connection id until the room is next touched.
+  /**
+   * D-07 supersedes Phase 1 D-11's "no reconnection handling" — a dropped
+   * connection now starts a bounded grace window instead of leaving its
+   * seat bound to a dead connection id indefinitely. Resolves the seat via
+   * seatFor(connectionId), exactly like every inbound handler (apps/party/src/CLAUDE.md
+   * rule 2); returns immediately when there is none (an unbound connection
+   * closing — e.g. the transient create/join handshake socket — changes
+   * nothing). Otherwise: schedule the grace entry, clear this seat's
+   * connectionId (so a later seatFor can never resolve a now-dead
+   * connection), persist, resync the room's single alarm slot, and
+   * broadcast so every remaining player's seat list flips to
+   * "Reconnecting…" on the same frame. The directory is deliberately left
+   * untouched here — a lobby with a briefly-dropped player is still open
+   * and still joinable, and seatsFilled is unchanged because the seat is
+   * still occupied.
+   */
+  async onClose(connection: Party.Connection): Promise<void> {
+    if (!this.state) return;
+    const seat = seatFor(this.state, connection.id);
+    if (!seat) return;
+
+    const now = Date.now();
+    const withGrace = scheduleDisconnectGrace(this.state, seat.index, now, DISCONNECT_GRACE_MS);
+    const seats = withGrace.seats.map((s) =>
+      s.index === seat.index ? { ...s, connectionId: null } : s,
+    );
+    const next: RoomState = { ...withGrace, seats };
+
+    await this.persist(next);
+    await this.syncAlarm(next);
+    sendLobby(this.room, next);
   }
 
   /**
@@ -201,7 +327,27 @@ export default class MatchRoom implements Party.Server {
     const now = Date.now();
 
     if (this.state.phase === 'LOBBY' || this.state.phase === 'LOADOUT') {
-      const started = startMatch(this.state, now);
+      const afterTakeovers = this.applyExpiredTakeovers(this.state, now);
+      const takeoverFired = afterTakeovers !== this.state;
+
+      // A grace expiry must not be mistaken for the countdown expiring
+      // (T-03-23). This guard only engages when a takeover actually just
+      // fired — a bare `startsAt` check on every LOBBY/LOADOUT alarm would
+      // wrongly reject a legitimate countdown-driven match start in test
+      // harnesses (and, in principle, any caller) that invoke onAlarm
+      // without first advancing wall-clock time to `startsAt`, which this
+      // codebase's existing test suite does throughout. Without this
+      // guard, a disconnect's alarm firing early (a grace expiry is now
+      // also an alarmTarget candidate — Task 2) would start a match nobody
+      // readied for.
+      if (takeoverFired && (afterTakeovers.startsAt === null || afterTakeovers.startsAt > now)) {
+        await this.persist(afterTakeovers);
+        await this.syncAlarm(afterTakeovers);
+        sendLobby(this.room, afterTakeovers);
+        return;
+      }
+
+      const started = startMatch(afterTakeovers, now);
       const startedGameState = started.gameState;
       if (started.phase !== 'IN_GAME' || !startedGameState) {
         await this.persist(started);
@@ -213,16 +359,24 @@ export default class MatchRoom implements Party.Server {
       sendLobby(this.room, withBots);
       sendViews(this.room, withBots, startedGameState);
       sendClock(this.room, withBots);
+      // Pushed after the post-startMatch state is persisted, so the REMOVE
+      // this sends reflects the room's new IN_GAME phase (03-01-PLAN.md
+      // Task 2). room.context.parties is documented as unreliable inside
+      // onAlarm (Pitfall 5) — the SUBMIT_ORDER self-heal above covers a
+      // silent failure here.
+      await this.pushDirectory(withBots);
       return;
     }
 
     if (this.state.phase === 'IN_GAME') {
       const before = this.state;
+      const afterTakeovers = this.applyExpiredTakeovers(before, now);
+      const takeoverFired = afterTakeovers !== before;
 
       // Release any bot orders whose padded think-time has elapsed —
       // through the identical submitOrder() path a human's SUBMIT_ORDER
       // uses (apps/party/src/CLAUDE.md rule 3).
-      const { state: released, released: releasedSeats } = releaseBotSubmissions(before, now);
+      const { state: released, released: releasedSeats } = releaseBotSubmissions(afterTakeovers, now);
       for (const playerId of releasedSeats) {
         if (released.gameState) sendCommitted(this.room, released.gameState, playerId);
       }
@@ -252,6 +406,14 @@ export default class MatchRoom implements Party.Server {
         await this.syncAlarm(working);
         if (working.gameState) sendResolved(this.room, working, working.gameState);
         sendClock(this.room, working);
+        // A takeover this tick means a seat's readout just flipped to its
+        // personality — every remaining seat list needs to see that too.
+        if (takeoverFired) sendLobby(this.room, working);
+        // Covers the round-close-into-victory case: closeRound() can move
+        // `working.phase` to ENDED here, which syncDirectory's own
+        // commandFor() treats identically to IN_GAME (REMOVE) — this call
+        // is a no-op UPSERT-avoiding safety net, not a second code path.
+        await this.pushDirectory(working);
         return;
       }
 
@@ -261,13 +423,48 @@ export default class MatchRoom implements Party.Server {
       if (working !== before) {
         await this.persist(working);
         await this.syncAlarm(working);
+        if (takeoverFired) sendLobby(this.room, working);
       }
     }
+  }
+
+  /**
+   * Folds every seat whose disconnect grace has expired (Task 2's
+   * expiredGraceSeats) through takeOverSeat, seeded from
+   * `${matchId}:takeover:${seatIndex}` — a fixed per-seat seed, never
+   * freshRng()'s crypto source, because apps/party/src/CLAUDE.md rule 9
+   * bans ambient randomness here too and a deterministic seed is what
+   * makes a takeover reproducible in a replay. Returns `state` unchanged —
+   * by reference — when nothing expired.
+   */
+  private applyExpiredTakeovers(state: RoomState, now: number): RoomState {
+    let working = state;
+    for (const grace of expiredGraceSeats(state, now)) {
+      const rng = seedRng(`${state.matchId}:takeover:${grace.seatIndex}`);
+      working = takeOverSeat(working, grace.seatIndex, rng);
+    }
+    return working;
   }
 
   private async persist(state: RoomState | null): Promise<void> {
     this.state = state;
     if (state) await this.room.storage.put(STATE_KEY, state);
+  }
+
+  /**
+   * Pushes this room's public lobby metadata into the directory party — a
+   * thin no-op-on-null wrapper over directoryClient.ts's syncDirectory, so
+   * every call site below can call it unconditionally regardless of whether
+   * its own handler produced a state. Called at the tail of every branch
+   * that can change a seat, the seat count, or the phase (03-01-PLAN.md
+   * Task 2): CREATE, JOIN, SET_READY, SET_CODENAME, both onAlarm branches,
+   * and (as the Pitfall-5 self-heal) SUBMIT_ORDER. Deliberately NOT called
+   * from SUBMIT_LOADOUT — a loadout write changes nothing in the public
+   * snapshot (T-2-03).
+   */
+  private async pushDirectory(state: RoomState | null): Promise<void> {
+    if (!state) return;
+    await syncDirectory(this.room, state);
   }
 
   /**
@@ -286,17 +483,14 @@ export default class MatchRoom implements Party.Server {
   }
 
   /**
-   * Mirrors the room's active timer into a real Durable Object alarm:
-   * RoomState.startsAt during LOBBY/LOADOUT, or — during IN_GAME — the
-   * earlier of the round deadline and the next queued bot release, since
-   * the room's single alarm slot must fire for whichever comes first.
+   * Mirrors the room's active timer(s) into a real Durable Object alarm.
    * Called unconditionally is intentional and safe: setAlarm with the same
    * target time is idempotent, and deleteAlarm on a room with no alarm
    * scheduled is a no-op — so this never needs to diff against the
    * previous value.
    */
   private async syncAlarm(state: RoomState): Promise<void> {
-    const target = state.phase === 'IN_GAME' ? this.roundAlarmTarget(state) : state.startsAt;
+    const target = this.alarmTarget(state);
     if (target !== null) {
       await this.room.storage.setAlarm(target);
     } else {
@@ -304,10 +498,29 @@ export default class MatchRoom implements Party.Server {
     }
   }
 
-  private roundAlarmTarget(state: RoomState): number | null {
+  /**
+   * The single Durable Object alarm slot's next-firing target, covering
+   * every phase (Task 2 — this used to be IN_GAME-only `roundAlarmTarget`,
+   * branched around in `syncAlarm`; a disconnect can happen from a lobby
+   * just as easily as from a live match, so the grace-expiry candidate
+   * belongs in every phase, not only IN_GAME). Candidates: `startsAt`
+   * during LOBBY/LOADOUT; `deadlineAt` and every queued bot submission's
+   * `releaseAt` during IN_GAME; every `disconnectedSeats[].graceExpiresAt`
+   * in ANY phase. Returns the earliest of whichever candidates apply, or
+   * null when there are none — the room's alarm must fire for whichever
+   * event comes first, exactly as it already does for the deadline-versus-
+   * bot-release pair.
+   */
+  private alarmTarget(state: RoomState): number | null {
     const targets: number[] = [];
-    if (state.deadlineAt !== null) targets.push(state.deadlineAt);
-    for (const submission of state.botSubmissions) targets.push(submission.releaseAt);
+    if (state.phase === 'LOBBY' || state.phase === 'LOADOUT') {
+      if (state.startsAt !== null) targets.push(state.startsAt);
+    }
+    if (state.phase === 'IN_GAME') {
+      if (state.deadlineAt !== null) targets.push(state.deadlineAt);
+      for (const submission of state.botSubmissions) targets.push(submission.releaseAt);
+    }
+    for (const grace of state.disconnectedSeats) targets.push(grace.graceExpiresAt);
     return targets.length > 0 ? Math.min(...targets) : null;
   }
 }

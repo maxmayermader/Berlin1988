@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: Playable Skeleton** - Bare lobby + default loadout + full 14-round match to a result, end to end
 - [ ] **Phase 2: Deckbuilder & Persistent Loadouts** - Players bring their own 10-card deck instead of the default
-- [ ] **Phase 3: Open Lobbies, Host Control & Table Talk** - Public lobby browser, host seat/kick control, chat, and dropout resilience
+- [x] **Phase 3: Open Lobbies, Host Control & Table Talk** - Public lobby browser, host seat/kick control, chat, and dropout resilience (completed 2026-09-02)
 - [ ] **Phase 4: Deduction Surfaces & Presentation Polish** - Round history, Burn Track, and consistent motion across the app
 
 ## Phase Details
@@ -109,7 +109,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Every AI-controlled seat shows the bot's name and personality rather than a bare difficulty label.
   5. Players can send free-text messages and predefined flavor prompts (e.g. "Berlin is nice this time of year") in both the lobby and an in-progress match, and everyone in the room sees them.
 
-**Plans**: TBD
+**Plans**: 4/4 plans executed
+
+- [x] 03-01-PLAN.md
+- [x] 03-02-PLAN.md
+- [x] 03-03-PLAN.md
+- [x] 03-04-PLAN.md
+
 **UI hint**: yes
 
 ### Phase 4: Deduction Surfaces & Presentation Polish
@@ -137,7 +143,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Playable Skeleton | 6/6 | In Progress|  |
 | 2. Deckbuilder & Persistent Loadouts | 4/4 | In Progress|  |
-| 3. Open Lobbies, Host Control & Table Talk | 0/TBD | Not started | - |
+| 3. Open Lobbies, Host Control & Table Talk | 4/4 | Complete    | 2026-09-02 |
 | 4. Deduction Surfaces & Presentation Polish | 0/TBD | Not started | - |
 
 ## Requirement Coverage

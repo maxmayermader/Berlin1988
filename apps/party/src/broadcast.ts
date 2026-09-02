@@ -1,6 +1,6 @@
 import { projectView } from '@berlin/engine';
 import { playerId as toPlayerId, serverMessageSchema } from '@berlin/shared';
-import type { GameState, ServerMessage } from '@berlin/shared';
+import type { ChatMessage, ChatScope, GameState, ServerMessage } from '@berlin/shared';
 import type * as Party from 'partykit/server';
 import { seatFor } from './auth.js';
 import { toSnapshot, type RoomState } from './state.js';
@@ -112,4 +112,45 @@ export function sendClock(room: Party.Room, state: RoomState): void {
   for (const connection of room.getConnections()) {
     connection.send(payload);
   }
+}
+
+/**
+ * CHAT_MESSAGE — one payload built once, parsed once against
+ * serverMessageSchema once, stringified once, and sent as that exact same
+ * string to every connection from room.getConnections(). No seatFor call, no
+ * conditional inside the send loop, no per-recipient payload construction —
+ * this shape is deliberate and load-bearing (prohibition P-3-02, threat
+ * T-03-14): a future filtered or scoped delivery path (a team channel,
+ * suppressing eliminated seats, a typing indicator, per-recipient read
+ * receipts) would leak state through *who receives what*, which no
+ * payload-level review of chatMessageSchema alone would ever catch. If a
+ * later change needs recipient-specific chat delivery, that is an
+ * architectural decision, not a tweak to this function.
+ */
+export function sendChat(room: Party.Room, message: ChatMessage): void {
+  const parsed: ServerMessage = { type: 'CHAT_MESSAGE', message };
+  const validated = serverMessageSchema.parse(parsed);
+  const payload = JSON.stringify(validated);
+  for (const connection of room.getConnections()) {
+    connection.send(payload);
+  }
+}
+
+/**
+ * CHAT_HISTORY — a targeted catch-up send through the existing sendTo, not a
+ * fan-out. History is per-connection because it is a catch-up (a joining or
+ * reconnecting connection asks "what did I miss"), but it carries exactly
+ * the same messages every other connection already received via sendChat
+ * above, so it introduces no per-recipient *variation* of the kind
+ * prohibition P-3-02 forbids — every connection that has been in the room
+ * the whole time already has this exact data; this function only backfills
+ * a connection that wasn't. Do not read this function's existence as a
+ * licence to start filtering or scoping chat delivery elsewhere.
+ */
+export function sendChatHistory(
+  connection: Party.Connection,
+  scope: ChatScope,
+  messages: readonly ChatMessage[],
+): void {
+  sendTo(connection, { type: 'CHAT_HISTORY', scope, messages: [...messages] });
 }
