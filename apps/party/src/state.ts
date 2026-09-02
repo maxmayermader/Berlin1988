@@ -240,6 +240,26 @@ export function setSeatCount(state: RoomState, count: number, now: number): Room
   return recomputeCountdown({ ...state, seats }, now, COUNTDOWN_DURATION_MS);
 }
 
+/**
+ * Resets the seat at `seatIndex` back to the OPEN shape openSeat()/emptySeats()
+ * build — playerId, codename, token, connectionId, personality, difficulty
+ * and loadout all null, ready false — while `index` and `faction` are
+ * preserved unchanged. Seat order is assigned once at join time and is
+ * never re-sorted (see the file header comment above), so vacating leaves a
+ * hole in the array rather than compacting it; minSeatCount() above is what
+ * makes that hole safe — it refuses to shrink the room below the highest
+ * remaining occupied index, so a hole below an occupied seat never becomes
+ * an ejection.
+ */
+export function vacateSeat(state: RoomState, seatIndex: number): RoomState {
+  return {
+    ...state,
+    seats: state.seats.map((seat) =>
+      seat.index === seatIndex ? openSeat(seat.index, seat.faction) : seat,
+    ),
+  };
+}
+
 /** Ready filled seats over total filled seats. Total function — an
  *  entirely-open room returns 0 rather than dividing by zero. Open seats
  *  count in neither the numerator nor the denominator. */

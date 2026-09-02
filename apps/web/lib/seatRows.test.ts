@@ -94,4 +94,30 @@ describe('apps/web/lib/seatRows (pure view model)', () => {
     ]);
     expect(seatRows(s)).toHaveLength(s.seats.length);
   });
+
+  it("as the host, canKick is true on every occupied non-host row and false on the host's own row and every OPEN row", () => {
+    const s = snapshot([
+      seat({ index: 0, playerId: 'p0', codename: 'Vogel', kind: 'HUMAN' }),
+      seat({ index: 1, playerId: 'p1', codename: 'Katja', kind: 'HUMAN' }),
+      seat({ index: 2, playerId: 'b2', codename: 'Marek', kind: 'BOT' }),
+      seat({ index: 3 }),
+    ]);
+    const rows = seatRows(s, { playerId: 'p0' });
+    expect(rows[0]!.canKick).toBe(false); // host's own row
+    expect(rows[1]!.canKick).toBe(true); // occupied non-host row
+    expect(rows[2]!.canKick).toBe(true); // occupied non-host row (bot)
+    expect(rows[3]!.canKick).toBe(false); // OPEN row
+  });
+
+  it('as a non-host viewer (or with no viewer), canKick is false on every row', () => {
+    const s = snapshot([
+      seat({ index: 0, playerId: 'p0', codename: 'Vogel', kind: 'HUMAN' }),
+      seat({ index: 1, playerId: 'p1', codename: 'Katja', kind: 'HUMAN' }),
+    ]);
+    const asGuest = seatRows(s, { playerId: 'p1' });
+    expect(asGuest.every((r) => r.canKick === false)).toBe(true);
+
+    const noViewer = seatRows(s);
+    expect(noViewer.every((r) => r.canKick === false)).toBe(true);
+  });
 });

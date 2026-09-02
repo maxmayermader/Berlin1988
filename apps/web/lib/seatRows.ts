@@ -2,11 +2,11 @@ import type { LobbySnapshot } from '@berlin/shared';
 
 /**
  * The seat list's rules — badge selection, AI flagging, row order, ready
- * summary, countdown visibility — as a pure view model, no React. Asserted
- * on the values this module returns, never on rendered DOM: this phase
- * ships no React component-testing stack (see 01-02-PLAN.md's
- * <testing_note>), so this is where these rules become unit-testable at
- * all.
+ * summary, countdown visibility, kick-button visibility — as a pure view
+ * model, no React. Asserted on the values this module returns, never on
+ * rendered DOM: this phase ships no React component-testing stack (see
+ * 01-02-PLAN.md's <testing_note>), so this is where these rules become
+ * unit-testable at all.
  */
 
 export const READY_BADGE_TEXT = 'Ready ✓';
@@ -19,6 +19,11 @@ export interface SeatRow {
   readonly kind: 'HUMAN' | 'BOT' | 'OPEN';
   readonly badgeText: string | null;
   readonly isAi: boolean;
+  /** Whether a Kick button should render on this row. True only when the
+   *  viewer is the host, the row is occupied (not OPEN), and the row is not
+   *  the host's own seat. Kick-button visibility is a rule, and rules live
+   *  here — SeatList.tsx must not re-derive it. */
+  readonly canKick: boolean;
 }
 
 /**
@@ -27,8 +32,17 @@ export interface SeatRow {
  * the room assigned at join time (apps/party/src/state.ts), so a ready
  * toggle can never reorder the list. An open seat carries no ready badge
  * and no placeholder name — a chair nobody is sitting in has neither.
+ *
+ * `viewer` is optional and defaults to null (no viewer identity known yet,
+ * e.g. before JOINED has arrived) — every row's `canKick` is false in that
+ * case.
  */
-export function seatRows(snapshot: LobbySnapshot): SeatRow[] {
+export function seatRows(
+  snapshot: LobbySnapshot,
+  viewer: { playerId: string | null } | null = null,
+): SeatRow[] {
+  const viewerIsHost = viewer !== null && viewer.playerId === snapshot.hostPlayerId;
+
   return snapshot.seats.map((seat) => {
     if (seat.kind === 'OPEN') {
       return {
@@ -38,6 +52,7 @@ export function seatRows(snapshot: LobbySnapshot): SeatRow[] {
         kind: 'OPEN',
         badgeText: null,
         isAi: false,
+        canKick: false,
       };
     }
     return {
@@ -50,6 +65,7 @@ export function seatRows(snapshot: LobbySnapshot): SeatRow[] {
       // (this plan's threat-model prohibition) — proven on this value by
       // seatRows.test.ts rather than by reading the component.
       isAi: seat.kind === 'BOT',
+      canKick: viewerIsHost && seat.playerId !== snapshot.hostPlayerId,
     };
   });
 }

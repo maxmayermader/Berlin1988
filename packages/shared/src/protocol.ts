@@ -106,6 +106,15 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     // from the message body.
     count: z.number().int().min(1).max(4),
   }),
+  z.object({
+    type: z.literal('KICK'),
+    // KICK carries a seat index, not a playerId — the target is a position
+    // in the room's own seats array, so there is no identity string a
+    // client could forge into referring to someone else's seat. Bounded
+    // 0..3 (MAX_SEAT_COUNT - 1) at the schema layer; the handler further
+    // refuses an index outside the *current* seats array.
+    seatIndex: z.number().int().min(0).max(3),
+  }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -301,6 +310,13 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     // its own. Only the rejection needs a dedicated message, matching the
     // LOADOUT_REJECTED precedent.
     message: z.string(),
+  }),
+  z.object({
+    type: z.literal('KICKED'),
+    // Targeted at exactly one connection via sendTo — never room-wide fan
+    // out. Carries only a fixed human-readable reason, no seat index, no
+    // other player's identity, no room state (T-03-11).
+    reason: z.string(),
   }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

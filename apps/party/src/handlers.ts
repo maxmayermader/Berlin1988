@@ -19,6 +19,7 @@ import {
   setLoadout,
   setReady,
   setSeatCount,
+  vacateSeat,
   type RoomState,
 } from './state.js';
 
@@ -259,6 +260,87 @@ export function handleSetSeatCount(
   }
 
   return { state: setSeatCount(state, count, now), toSender: null };
+}
+
+export interface KickResult {
+  state: RoomState | null;
+  /** Null only when there is no seat binding for this connection — mirrors
+   *  handleSetSeatCount's silent no-op for an unbound connection. Every
+   *  refusal (non-host, self-kick, OPEN target, out-of-bounds index, wrong
+   *  phase) gets an explicit ERROR reply instead. */
+  toSender: ServerMessage | null;
+  /** The vacated seat's former connectionId, captured before vacating —
+   *  null on every path that didn't actually kick anyone. room.ts uses this
+   *  to sendTo() the kicked connection a KICKED message. */
+  kickedConnectionId: string | null;
+}
+
+/**
+ * KICK — the second host-only message this plan adds, following
+ * handleSetSeatCount's exact pattern: resolve the acting seat via
+ * seatFor(connectionId), compare against state.hostPlayerId, refuse with an
+ * explicit reply rather than a silent no-op. `seatIndex` is a position in
+ * the room's own array, never a playerId (T-03-07) — so "does this index
+ * refer to a real, kickable, non-host occupant" is checked entirely against
+ * the room's own current seats, never against anything the client claims.
+ */
+export function handleKick(
+  state: RoomState | null,
+  seatIndex: number,
+  connectionId: string,
+  now: number,
+): KickResult {
+  if (!state) return { state: null, toSender: null, kickedConnectionId: null };
+
+  const actingSeat = seatFor(state, connectionId);
+  if (!actingSeat || !actingSeat.playerId) {
+    return { state, toSender: null, kickedConnectionId: null };
+  }
+
+  if (actingSeat.playerId !== state.hostPlayerId) {
+    return {
+      state,
+      toSender: { type: 'ERROR', code: 'BAD_MESSAGE', message: 'Only the host can remove a player.' },
+      kickedConnectionId: null,
+    };
+  }
+
+  if (state.phase !== 'LOBBY' && state.phase !== 'LOADOUT') {
+    return {
+      state,
+      toSender: { type: 'ERROR', code: 'BAD_MESSAGE', message: 'The match has already started.' },
+      kickedConnectionId: null,
+    };
+  }
+
+  const target = state.seats.find((seat) => seat.index === seatIndex);
+  if (!target) {
+    return {
+      state,
+      toSender: { type: 'ERROR', code: 'BAD_MESSAGE', message: "That seat doesn't exist." },
+      kickedConnectionId: null,
+    };
+  }
+
+  if (target.kind === 'OPEN') {
+    return {
+      state,
+      toSender: { type: 'ERROR', code: 'BAD_MESSAGE', message: "That seat is already empty." },
+      kickedConnectionId: null,
+    };
+  }
+
+  if (target.playerId === state.hostPlayerId) {
+    return {
+      state,
+      toSender: { type: 'ERROR', code: 'BAD_MESSAGE', message: "The host can't remove themselves." },
+      kickedConnectionId: null,
+    };
+  }
+
+  const kickedConnectionId = target.connectionId;
+  const next = recomputeCountdown(vacateSeat(state, seatIndex), now, COUNTDOWN_DURATION_MS);
+  return { state: next, toSender: null, kickedConnectionId };
 }
 
 export interface SubmitOrderResult {

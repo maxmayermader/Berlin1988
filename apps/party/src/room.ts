@@ -9,6 +9,7 @@ import { syncDirectory } from './directoryClient.js';
 import {
   handleCreate,
   handleJoin,
+  handleKick,
   handleSetCodename,
   handleSetReady,
   handleSetSeatCount,
@@ -169,6 +170,33 @@ export default class MatchRoom implements Party.Server {
         sendLobby(this.room, result.state);
         // Keeps the directory's seatsTotal in sync with a host-driven
         // resize, exactly like every other seat/phase-affecting branch.
+        await this.pushDirectory(result.state);
+      }
+      return;
+    }
+
+    if (message.type === 'KICK') {
+      const before = this.state;
+      const result = handleKick(this.state, message.seatIndex, sender.id, now);
+      await this.persist(result.state);
+      if (result.toSender) sendTo(sender, result.toSender);
+      if (result.state && result.state !== before) {
+        await this.syncAlarm(result.state);
+        // The kicked player is told before the room is told — their client
+        // can begin its redirect while the remaining players' seat lists
+        // update from the same ROOM_STATE frame.
+        if (result.kickedConnectionId) {
+          const target = [...this.room.getConnections()].find(
+            (c) => c.id === result.kickedConnectionId,
+          );
+          if (target) {
+            sendTo(target, {
+              type: 'KICKED',
+              reason: 'You were removed from the lobby by the host.',
+            });
+          }
+        }
+        sendLobby(this.room, result.state);
         await this.pushDirectory(result.state);
       }
       return;

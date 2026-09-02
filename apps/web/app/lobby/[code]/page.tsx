@@ -41,14 +41,26 @@ export default function LobbyPage() {
   // — mirrors the room's own "the next authoritative frame wins" discipline
   // rather than a client-side timeout.
   const [seatCountError, setSeatCountError] = useState<string | null>(null);
+  // A kick rejection is a generic ERROR frame (no dedicated KICK_REJECTED
+  // type — the plan's own reasoning is that a rare race is not worth a new
+  // message type), cleared the same way as seatCountError.
+  const [kickError, setKickError] = useState<string | null>(null);
 
   const socket = useRoomSocket(code, identity.codename, (message: ServerMessage) => {
     if (message.type === 'ROOM_STATE') {
       setSnapshot(message.snapshot);
       setSeatCountError(null);
+      setKickError(null);
     }
     if (message.type === 'JOINED') setPlayerId(message.playerId);
     if (message.type === 'SET_SEAT_COUNT_REJECTED') setSeatCountError(message.message);
+    // The lobby page's only ERROR source once joined is a rejected KICK
+    // (order-related ERROR codes never fire pre-match) — shown as the
+    // UI-SPEC's kick-rejected copy rather than the server's own message,
+    // since a rare race (target already left) is the one case this covers.
+    if (message.type === 'ERROR') {
+      setKickError("Couldn't remove that player — they may have already left.");
+    }
   });
 
   useEffect(() => {
@@ -116,6 +128,10 @@ export default function LobbyPage() {
     send({ type: 'SET_SEAT_COUNT', count });
   }
 
+  function kickSeat(seatIndex: number) {
+    send({ type: 'KICK', seatIndex });
+  }
+
   function renameCodename(codename: string) {
     send({ type: 'SET_CODENAME', codename });
   }
@@ -179,7 +195,13 @@ export default function LobbyPage() {
               error={seatCountError}
               onSelect={selectSeatCount}
             />
-            <SeatList snapshot={snapshot} onToggleReady={toggleReady} myPlayerId={playerId} />
+            <SeatList
+              snapshot={snapshot}
+              onToggleReady={toggleReady}
+              myPlayerId={playerId}
+              onKick={isHost ? kickSeat : undefined}
+            />
+            {kickError && <p className="text-sm text-[#dc2626]">{kickError}</p>}
           </div>
           {mySeat && (
             <div className="flex gap-2">
