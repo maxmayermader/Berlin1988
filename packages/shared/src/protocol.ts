@@ -374,6 +374,15 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('CHAT_REJECTED'),
     message: z.string(),
   }),
+  z.object({
+    type: z.literal('CHAT_HISTORY'),
+    // Targeted at exactly one connection (the joining/reconnecting seat) via
+    // broadcast.ts's sendChatHistory, never room-wide fan-out — but carries
+    // exactly the messages every other connection already received, so it
+    // introduces no per-recipient variation of the kind P-3-02 forbids.
+    scope: chatScopeSchema,
+    messages: z.array(chatMessageSchema),
+  }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ServerErrorCode = z.infer<typeof errorCodeSchema>;

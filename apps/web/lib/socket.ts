@@ -172,6 +172,8 @@ export function useRoomSocket(
         markKicked();
       } else if (message.type === 'CHAT_MESSAGE') {
         useChatStore.getState().append(message.message.scope, message.message);
+      } else if (message.type === 'CHAT_HISTORY') {
+        useChatStore.getState().replace(message.scope, message.messages);
       }
 
       onMessage(message);

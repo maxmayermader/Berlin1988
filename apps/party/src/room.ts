@@ -6,6 +6,7 @@ import type * as Party from 'partykit/server';
 import { decideForBotSeats, releaseBotSubmissions } from './bots.js';
 import {
   sendChat,
+  sendChatHistory,
   sendClock,
   sendCommitted,
   sendLobby,
@@ -124,6 +125,7 @@ export default class MatchRoom implements Party.Server {
       await this.persist(result.state);
       if (result.state) await this.syncAlarm(result.state);
       sendTo(sender, result.toSender);
+      if (result.chatHistory) sendChatHistory(sender, result.chatHistory.scope, result.chatHistory.messages);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
       await this.pushDirectory(result.state);
       return;
@@ -134,6 +136,7 @@ export default class MatchRoom implements Party.Server {
       await this.persist(result.state);
       if (result.state) await this.syncAlarm(result.state);
       sendTo(sender, result.toSender);
+      if (result.chatHistory) sendChatHistory(sender, result.chatHistory.scope, result.chatHistory.messages);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
       await this.pushDirectory(result.state);
       return;

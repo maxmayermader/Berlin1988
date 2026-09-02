@@ -4,11 +4,13 @@ import {
   playerId as toPlayerId,
   type AgentOrder,
   type ChatMessage,
+  type ChatScope,
   type ClientMessage,
   type RngState,
   type ServerMessage,
 } from '@berlin/shared';
 import { bindConnection, mintToken, seatFor } from './auth.js';
+import { appendChat, chatLogFor, chatScopeFor } from './chat.js';
 import { newJoinCode } from './joinCode.js';
 import {
   canSetSeatCount,
@@ -30,12 +32,26 @@ function isJoinCodeShaped(roomId: string): boolean {
   return JOIN_CODE_SHAPE.test(roomId);
 }
 
+/** The chat scope + stored messages a joining/reconnecting connection should
+ *  be caught up with, or null when the join itself failed (no room to catch
+ *  up on). Populated by handleJoin's two successful paths from
+ *  chatLogFor(state, chatScopeFor(state.phase)). */
+export interface ChatHistoryPayload {
+  scope: ChatScope;
+  messages: readonly ChatMessage[];
+}
+
 export interface HandlerResult {
   state: RoomState | null;
   /** Reply sent only to the connection that sent the inbound message. */
   toSender: ServerMessage;
   /** Whether every connection in the room should also receive a fresh ROOM_STATE. */
   broadcastRoomState: boolean;
+  /** The chat history the connection should be caught up with — non-null
+   *  only on handleJoin's two successful paths (03-03-PLAN.md Task 2). Null
+   *  for handleCreate (a brand-new room has no prior chat) and for every
+   *  error path. */
+  chatHistory: ChatHistoryPayload | null;
 }
 
 /**
@@ -84,12 +100,15 @@ export function handleCreate(
     deadlineAt: null,
     deadlineRound: null,
     botSubmissions: [],
+    chat: { LOBBY: [], MATCH: [] },
   };
 
   return {
     state,
     toSender: { type: 'JOINED', playerId: hostPlayerId, token, code },
     broadcastRoomState: true,
+    // A brand-new room has no prior chat to catch the host up on.
+    chatHistory: null,
   };
 }
 
@@ -116,6 +135,7 @@ export function handleJoin(
         message: "That code doesn't match an open lobby.",
       },
       broadcastRoomState: false,
+      chatHistory: null,
     };
   }
 
@@ -127,6 +147,7 @@ export function handleJoin(
         now,
         COUNTDOWN_DURATION_MS,
       );
+      const scope = chatScopeFor(rebound.phase);
       return {
         state: rebound,
         toSender: {
@@ -136,6 +157,7 @@ export function handleJoin(
           code: state.code,
         },
         broadcastRoomState: true,
+        chatHistory: { scope, messages: chatLogFor(rebound, scope) },
       };
     }
   }
@@ -153,6 +175,7 @@ export function handleJoin(
         message: `This lobby already has ${state.seats.length} player${state.seats.length === 1 ? '' : 's'}.`,
       },
       broadcastRoomState: false,
+      chatHistory: null,
     };
   }
 
@@ -166,11 +189,13 @@ export function handleJoin(
   // A new join recomputes the threshold — an extra filled seat can drop an
   // already-counting-down ratio back below 50% (01-RESEARCH.md Pitfall 5).
   const nextState: RoomState = recomputeCountdown({ ...state, seats }, now, COUNTDOWN_DURATION_MS);
+  const scope = chatScopeFor(nextState.phase);
 
   return {
     state: nextState,
     toSender: { type: 'JOINED', playerId, token, code: state.code },
     broadcastRoomState: true,
+    chatHistory: { scope, messages: chatLogFor(nextState, scope) },
   };
 }
 
@@ -505,7 +530,11 @@ export interface ChatSendResult {
  * the client's own canSend() gate is UX only; this is the enforcement,
  * mirroring how handleSubmitLoadout re-validates behind the deckbuilder's
  * own gate. `built.codename` is always `seat.codename` — nothing about the
- * message's attribution is ever read from `message`.
+ * message's attribution is ever read from `message`. The message's scope is
+ * derived from chatScopeFor(state.phase), never hardcoded — this is what
+ * makes D-10's lobby/match separation a property of the phase machine, and
+ * appendChat is what makes the resulting state carry the message in its own
+ * bounded, phase-scoped log.
  */
 export function handleChatSend(
   state: RoomState | null,
@@ -532,11 +561,11 @@ export function handleChatSend(
 
   const built: ChatMessage = {
     id: mintToken(rng),
-    scope: 'LOBBY',
+    scope: chatScopeFor(state.phase),
     codename: seat.codename,
     text,
     at: now,
   };
 
-  return { state, toSender: null, broadcast: built };
+  return { state: appendChat(state, built), toSender: null, broadcast: built };
 }

@@ -1,6 +1,6 @@
 import { projectView } from '@berlin/engine';
 import { playerId as toPlayerId, serverMessageSchema } from '@berlin/shared';
-import type { ChatMessage, GameState, ServerMessage } from '@berlin/shared';
+import type { ChatMessage, ChatScope, GameState, ServerMessage } from '@berlin/shared';
 import type * as Party from 'partykit/server';
 import { seatFor } from './auth.js';
 import { toSnapshot, type RoomState } from './state.js';
@@ -134,4 +134,23 @@ export function sendChat(room: Party.Room, message: ChatMessage): void {
   for (const connection of room.getConnections()) {
     connection.send(payload);
   }
+}
+
+/**
+ * CHAT_HISTORY — a targeted catch-up send through the existing sendTo, not a
+ * fan-out. History is per-connection because it is a catch-up (a joining or
+ * reconnecting connection asks "what did I miss"), but it carries exactly
+ * the same messages every other connection already received via sendChat
+ * above, so it introduces no per-recipient *variation* of the kind
+ * prohibition P-3-02 forbids — every connection that has been in the room
+ * the whole time already has this exact data; this function only backfills
+ * a connection that wasn't. Do not read this function's existence as a
+ * licence to start filtering or scoping chat delivery elsewhere.
+ */
+export function sendChatHistory(
+  connection: Party.Connection,
+  scope: ChatScope,
+  messages: readonly ChatMessage[],
+): void {
+  sendTo(connection, { type: 'CHAT_HISTORY', scope, messages: [...messages] });
 }

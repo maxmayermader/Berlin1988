@@ -2,6 +2,7 @@ import { SECTORS } from '@berlin/shared';
 import type {
   AgentOrder,
   CardId,
+  ChatMessage,
   Difficulty,
   GameState,
   LobbySeat,
@@ -85,6 +86,11 @@ export interface RoomState {
    *  into pendingOrders — apps/party/src/bots.ts decideForBotSeats fills
    *  this, releaseBotSubmissions drains it. Empty outside IN_GAME. */
   botSubmissions: BotSubmission[];
+  /** Two separate, phase-scoped, bounded logs (D-10) — apps/party/src/chat.ts
+   *  owns chatScopeFor/appendChat, the sole authority for which scope a
+   *  message lands in and how the log is trimmed. Never derived into
+   *  toSnapshot(); chat travels on its own CHAT_MESSAGE/CHAT_HISTORY frames. */
+  chat: { readonly LOBBY: ChatMessage[]; readonly MATCH: ChatMessage[] };
 }
 
 /** One bot seat's already-decided order for the current round, queued for

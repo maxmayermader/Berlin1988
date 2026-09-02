@@ -30,6 +30,7 @@ function fixtureState(occupiedIndexes: number[], overrides: Partial<RoomState> =
     deadlineAt: null,
     deadlineRound: null,
     botSubmissions: [],
+    chat: { LOBBY: [], MATCH: [] },
     ...overrides,
   };
 }

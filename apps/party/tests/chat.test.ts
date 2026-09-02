@@ -1,10 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { seedRng } from '@berlin/engine';
-import { chatMessageSchema, clientMessageSchema, CHAT_TEXT_MAX } from '@berlin/shared';
+import {
+  chatMessageSchema,
+  clientMessageSchema,
+  CHAT_TEXT_MAX,
+  type ChatMessage,
+  type ServerMessage,
+} from '@berlin/shared';
 import { describe, expect, it } from 'vitest';
+import { appendChat, chatScopeFor, CHAT_LOG_LIMIT } from '../src/chat.js';
 import { handleChatSend } from '../src/handlers.js';
-import { emptySeats, type RoomState } from '../src/state.js';
+import { emptySeats, toSnapshot, type RoomState } from '../src/state.js';
 import { createTestRoom } from './helpers.js';
 
 /** A LOBBY RoomState fixture — mirrors kick.test.ts/seatcount.test.ts's
@@ -34,6 +41,7 @@ function fixtureState(occupiedIndexes: number[], overrides: Partial<RoomState> =
     deadlineAt: null,
     deadlineRound: null,
     botSubmissions: [],
+    chat: { LOBBY: [], MATCH: [] },
     ...overrides,
   };
 }
@@ -197,5 +205,131 @@ describe('apps/party/src/handlers.ts handleChatSend shape (static, D-11)', () =>
     expect(body).not.toMatch(/message\.playerId/);
     expect(body).not.toMatch(/message\.seatIndex/);
     expect(body).not.toMatch(/message\.agentId/);
+  });
+});
+
+describe('apps/party/src/chat.ts chatScopeFor (pure)', () => {
+  it('maps LOBBY and LOADOUT to LOBBY, and IN_GAME and ENDED to MATCH', () => {
+    expect(chatScopeFor('LOBBY')).toBe('LOBBY');
+    expect(chatScopeFor('LOADOUT')).toBe('LOBBY');
+    expect(chatScopeFor('IN_GAME')).toBe('MATCH');
+    expect(chatScopeFor('ENDED')).toBe('MATCH');
+  });
+});
+
+describe('apps/party/src/chat.ts appendChat (pure)', () => {
+  function message(id: string, scope: ChatMessage['scope'] = 'LOBBY'): ChatMessage {
+    return { id, scope, codename: 'Vogel', text: `text-${id}`, at: 0 };
+  }
+
+  it('keeps at most CHAT_LOG_LIMIT messages per scope, dropping the oldest first, order unchanged', () => {
+    let state = fixtureState([0]);
+    for (let i = 0; i < CHAT_LOG_LIMIT + 5; i++) {
+      state = appendChat(state, message(`m${i}`));
+    }
+    expect(state.chat.LOBBY).toHaveLength(CHAT_LOG_LIMIT);
+    expect(state.chat.LOBBY[0]!.id).toBe('m5');
+    expect(state.chat.LOBBY[state.chat.LOBBY.length - 1]!.id).toBe(`m${CHAT_LOG_LIMIT + 4}`);
+    // Order among the survivors is unchanged — every remaining id is
+    // strictly increasing.
+    const ids = state.chat.LOBBY.map((m) => Number(m.id.slice(1)));
+    expect(ids).toEqual([...ids].sort((a, b) => a - b));
+  });
+
+  it('appending a MATCH-scope message never touches the LOBBY array', () => {
+    let state = fixtureState([0]);
+    state = appendChat(state, message('lobby-1', 'LOBBY'));
+    state = appendChat(state, message('match-1', 'MATCH'));
+    expect(state.chat.LOBBY).toHaveLength(1);
+    expect(state.chat.MATCH).toHaveLength(1);
+  });
+});
+
+describe('apps/party/src/state.ts toSnapshot (pure) — chat never enters the public snapshot', () => {
+  it("toSnapshot(state)'s key set is unchanged for a state with a non-empty chat log", () => {
+    let state = fixtureState([0]);
+    state = appendChat(state, {
+      id: 'm1',
+      scope: 'LOBBY',
+      codename: 'Vogel',
+      text: 'hello',
+      at: 0,
+    });
+    const snapshot = toSnapshot(state);
+    expect(Object.keys(snapshot).sort()).toEqual(
+      ['code', 'phase', 'hostPlayerId', 'seats', 'startsAt'].sort(),
+    );
+  });
+});
+
+describe('apps/party integration: chat follows the game (D-10)', () => {
+  it('two lobby messages, then a match message after startMatch, land in two separate, correctly-sized logs', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    await host.send({ type: 'CHAT_SEND', text: 'first' });
+    await host.send({ type: 'CHAT_SEND', text: 'second' });
+    await host.send({ type: 'SET_SEAT_COUNT', count: 1 });
+    await host.send({ type: 'SET_READY', ready: true });
+    await room.triggerAlarm();
+
+    expect(room.roomState()!.phase).toBe('IN_GAME');
+    // The lobby log does not carry over — MATCH starts empty.
+    expect(room.roomState()!.chat.MATCH).toHaveLength(0);
+
+    await host.send({ type: 'CHAT_SEND', text: 'third' });
+
+    expect(room.roomState()!.chat.LOBBY).toHaveLength(2);
+    expect(room.roomState()!.chat.MATCH).toHaveLength(1);
+  });
+
+  it('a connection that JOINs a room still in LOBBY receives a CHAT_HISTORY frame for the LOBBY scope', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    const code = room.roomState()!.code;
+    await host.send({ type: 'CHAT_SEND', text: 'Berlin is nice this time of year.' });
+
+    const guest = room.connect('Katja');
+    await guest.send({ type: 'JOIN', code, codename: 'Katja' });
+
+    const history = guest.received.find((m) => m.type === 'CHAT_HISTORY') as
+      | Extract<ServerMessage, { type: 'CHAT_HISTORY' }>
+      | undefined;
+    expect(history).toBeDefined();
+    expect(history!.scope).toBe('LOBBY');
+    expect(history!.messages).toHaveLength(1);
+  });
+
+  it('a connection that reconnects (token rebind) to a room already IN_GAME receives a CHAT_HISTORY frame for the MATCH scope, matching the stored match log, and never the LOBBY log', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    const code = room.roomState()!.code;
+
+    const guest = room.connect('Katja');
+    await guest.send({ type: 'JOIN', code, codename: 'Katja' });
+    const guestJoined = guest.received.find((m) => m.type === 'JOINED') as Extract<
+      ServerMessage,
+      { type: 'JOINED' }
+    >;
+
+    await host.send({ type: 'SET_READY', ready: true });
+    await guest.send({ type: 'SET_READY', ready: true });
+    await room.triggerAlarm();
+    expect(room.roomState()!.phase).toBe('IN_GAME');
+
+    await host.send({ type: 'CHAT_SEND', text: 'Nice weather for a defection.' });
+    expect(room.roomState()!.chat.MATCH).toHaveLength(1);
+
+    const reconnect = room.connect('Katja');
+    await reconnect.send({ type: 'JOIN', code, codename: 'Katja', token: guestJoined.token });
+
+    const history = reconnect.received.find((m) => m.type === 'CHAT_HISTORY') as
+      | Extract<ServerMessage, { type: 'CHAT_HISTORY' }>
+      | undefined;
+    expect(history).toBeDefined();
+    expect(history!.scope).toBe('MATCH');
+    expect(history!.messages).toHaveLength(room.roomState()!.chat.MATCH.length);
   });
 });

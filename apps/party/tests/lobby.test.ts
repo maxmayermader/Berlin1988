@@ -27,6 +27,7 @@ function fixtureState(filledCount: number, readyCount: number): RoomState {
     deadlineAt: null,
     deadlineRound: null,
     botSubmissions: [],
+    chat: { LOBBY: [], MATCH: [] },
   };
 }
 

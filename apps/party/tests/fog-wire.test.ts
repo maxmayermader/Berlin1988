@@ -341,6 +341,7 @@ describe('apps/party/src/bots.ts decideForBotSeats / releaseBotSubmissions (Task
       deadlineAt: null,
       deadlineRound: null,
       botSubmissions: [],
+      chat: { LOBBY: [], MATCH: [] },
     };
   }
 
