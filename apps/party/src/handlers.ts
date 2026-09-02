@@ -11,6 +11,7 @@ import {
   type ServerMessage,
 } from '@berlin/shared';
 import { bindConnection, mintToken, seatFor } from './auth.js';
+import { reclaimSeat } from './bots.js';
 import { appendChat, chatLogFor, chatScopeFor } from './chat.js';
 import { newJoinCode } from './joinCode.js';
 import {
@@ -151,11 +152,15 @@ export function handleJoin(
       // over yet — partysocket's own auto-reconnect already re-sends JOIN
       // with the stored token on open, so this one branch is both "you
       // came back before the grace window closed" (no AI ever involved)
-      // and, from Task 3 onward, "you came back after AI took over" (D-08
-      // extends this same branch with reclaimSeat's control-flip + purge).
+      // and — D-08 — "you came back after AI took over". When AI has
+      // taken the seat, reclaimSeat runs the whole control-flip +
+      // botSubmissions purge as one atomic transition (the fix for the
+      // verified submitOrder() overwrite race, T-03-19); clearDisconnectGrace
+      // alone still covers the plain-reconnect-before-takeover case.
       const regrace = clearDisconnectGrace(state, existing.index);
+      const reclaimed = existing.controlledBy === 'AI' ? reclaimSeat(regrace, existing.index) : regrace;
       const rebound = recomputeCountdown(
-        bindConnection(regrace, connectionId, existing.index),
+        bindConnection(reclaimed, connectionId, existing.index),
         now,
         COUNTDOWN_DURATION_MS,
       );

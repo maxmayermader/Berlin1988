@@ -3,7 +3,7 @@ import type { AIAgent } from '@berlin/ai';
 import { clientMessageSchema } from '@berlin/shared';
 import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
-import { decideForBotSeats, releaseBotSubmissions } from './bots.js';
+import { decideForBotSeats, releaseBotSubmissions, takeOverSeat } from './bots.js';
 import {
   sendChat,
   sendChatHistory,
@@ -31,7 +31,7 @@ import { newJoinCode } from './joinCode.js';
 import { closeRound, shouldCloseRound } from './round.js';
 import { startMatch } from './settings.js';
 import { DISCONNECT_GRACE_MS, type RoomState } from './state.js';
-import { onRoundAlarm, scheduleDisconnectGrace, scheduleRoundDeadline } from './timers.js';
+import { expiredGraceSeats, onRoundAlarm, scheduleDisconnectGrace, scheduleRoundDeadline } from './timers.js';
 
 const MINT_ROOM_ID = '_new';
 const STATE_KEY = 'state';
@@ -139,6 +139,17 @@ export default class MatchRoom implements Party.Server {
       sendTo(sender, result.toSender);
       if (result.chatHistory) sendChatHistory(sender, result.chatHistory.scope, result.chatHistory.messages);
       if (result.broadcastRoomState && result.state) sendLobby(this.room, result.state);
+      // D-08: a token-matched reclaim mid-match (state.phase IN_GAME) needs
+      // the reclaiming connection to receive its own projectView() VIEW —
+      // sendViews resolves each recipient's seat and calls projectView per
+      // connection, exactly the same chokepoint every other VIEW frame
+      // goes through, so the reclaiming player receives precisely what any
+      // other seat receives and nothing more (P-3-04). The room's
+      // `botAgents` cache — the stand-in's belief state — is never read
+      // here and has no serialisable accessor to read in the first place.
+      if (result.state?.phase === 'IN_GAME' && result.state.gameState) {
+        sendViews(this.room, result.state, result.state.gameState);
+      }
       await this.pushDirectory(result.state);
       return;
     }
@@ -316,7 +327,27 @@ export default class MatchRoom implements Party.Server {
     const now = Date.now();
 
     if (this.state.phase === 'LOBBY' || this.state.phase === 'LOADOUT') {
-      const started = startMatch(this.state, now);
+      const afterTakeovers = this.applyExpiredTakeovers(this.state, now);
+      const takeoverFired = afterTakeovers !== this.state;
+
+      // A grace expiry must not be mistaken for the countdown expiring
+      // (T-03-23). This guard only engages when a takeover actually just
+      // fired — a bare `startsAt` check on every LOBBY/LOADOUT alarm would
+      // wrongly reject a legitimate countdown-driven match start in test
+      // harnesses (and, in principle, any caller) that invoke onAlarm
+      // without first advancing wall-clock time to `startsAt`, which this
+      // codebase's existing test suite does throughout. Without this
+      // guard, a disconnect's alarm firing early (a grace expiry is now
+      // also an alarmTarget candidate — Task 2) would start a match nobody
+      // readied for.
+      if (takeoverFired && (afterTakeovers.startsAt === null || afterTakeovers.startsAt > now)) {
+        await this.persist(afterTakeovers);
+        await this.syncAlarm(afterTakeovers);
+        sendLobby(this.room, afterTakeovers);
+        return;
+      }
+
+      const started = startMatch(afterTakeovers, now);
       const startedGameState = started.gameState;
       if (started.phase !== 'IN_GAME' || !startedGameState) {
         await this.persist(started);
@@ -339,11 +370,13 @@ export default class MatchRoom implements Party.Server {
 
     if (this.state.phase === 'IN_GAME') {
       const before = this.state;
+      const afterTakeovers = this.applyExpiredTakeovers(before, now);
+      const takeoverFired = afterTakeovers !== before;
 
       // Release any bot orders whose padded think-time has elapsed —
       // through the identical submitOrder() path a human's SUBMIT_ORDER
       // uses (apps/party/src/CLAUDE.md rule 3).
-      const { state: released, released: releasedSeats } = releaseBotSubmissions(before, now);
+      const { state: released, released: releasedSeats } = releaseBotSubmissions(afterTakeovers, now);
       for (const playerId of releasedSeats) {
         if (released.gameState) sendCommitted(this.room, released.gameState, playerId);
       }
@@ -373,6 +406,9 @@ export default class MatchRoom implements Party.Server {
         await this.syncAlarm(working);
         if (working.gameState) sendResolved(this.room, working, working.gameState);
         sendClock(this.room, working);
+        // A takeover this tick means a seat's readout just flipped to its
+        // personality — every remaining seat list needs to see that too.
+        if (takeoverFired) sendLobby(this.room, working);
         // Covers the round-close-into-victory case: closeRound() can move
         // `working.phase` to ENDED here, which syncDirectory's own
         // commandFor() treats identically to IN_GAME (REMOVE) — this call
@@ -387,8 +423,27 @@ export default class MatchRoom implements Party.Server {
       if (working !== before) {
         await this.persist(working);
         await this.syncAlarm(working);
+        if (takeoverFired) sendLobby(this.room, working);
       }
     }
+  }
+
+  /**
+   * Folds every seat whose disconnect grace has expired (Task 2's
+   * expiredGraceSeats) through takeOverSeat, seeded from
+   * `${matchId}:takeover:${seatIndex}` — a fixed per-seat seed, never
+   * freshRng()'s crypto source, because apps/party/src/CLAUDE.md rule 9
+   * bans ambient randomness here too and a deterministic seed is what
+   * makes a takeover reproducible in a replay. Returns `state` unchanged —
+   * by reference — when nothing expired.
+   */
+  private applyExpiredTakeovers(state: RoomState, now: number): RoomState {
+    let working = state;
+    for (const grace of expiredGraceSeats(state, now)) {
+      const rng = seedRng(`${state.matchId}:takeover:${grace.seatIndex}`);
+      working = takeOverSeat(working, grace.seatIndex, rng);
+    }
+    return working;
   }
 
   private async persist(state: RoomState | null): Promise<void> {

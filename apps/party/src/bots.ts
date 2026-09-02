@@ -104,6 +104,83 @@ export function decideForBotSeats(
 }
 
 /**
+ * Hands a seat to a named AI once its disconnect grace period has expired
+ * (D-08). Returns `state` unchanged — by reference — when the seat is
+ * missing, has no `playerId`, is `kind` OPEN, or is already `controlledBy`
+ * `'AI'` (a duplicate expiry can never double-take a seat). Otherwise
+ * returns a new state in which that one seat has `controlledBy` set to
+ * `'AI'`, a `personality` drawn via the seeded `rng` from `PERSONALITY_IDS`
+ * — but ONLY when the seat doesn't already carry one, so re-taking a
+ * previously-reclaimed seat keeps the same bot identity rather than
+ * swapping the player's stand-in — and `difficulty` set to `BOT_DIFFICULTY`
+ * when it wasn't already set. That seat's disconnect-grace entry, if any,
+ * is cleared in the same transition — a taken-over seat is no longer
+ * merely disconnected.
+ *
+ * This is the crucial divergence from `fillEmptySeatsWithBots` above: that
+ * function mints a fresh synthetic `playerId` and `codename` because it is
+ * claiming a never-occupied chair. Destroying those here would make a
+ * later token-matched reclaim impossible — `playerId`, `token`, `codename`
+ * and `kind` are preserved byte-for-byte, along with `ready`, `faction` and
+ * `loadout`.
+ */
+export function takeOverSeat(state: RoomState, seatIndex: number, rng: RngState): RoomState {
+  const seat = state.seats.find((s) => s.index === seatIndex);
+  if (!seat || !seat.playerId || seat.kind === 'OPEN' || seat.controlledBy === 'AI') return state;
+
+  const personality = seat.personality ?? PERSONALITY_IDS[nextInt(rng, PERSONALITY_IDS.length)]!;
+  const difficulty = seat.difficulty ?? BOT_DIFFICULTY;
+
+  return {
+    ...state,
+    seats: state.seats.map((s) =>
+      s.index === seatIndex ? { ...s, controlledBy: 'AI' as const, personality, difficulty } : s,
+    ),
+    disconnectedSeats: state.disconnectedSeats.filter((d) => d.seatIndex !== seatIndex),
+  };
+}
+
+/**
+ * Reverses a takeover — the D-08 reclaim. Returns `state` unchanged unless
+ * the seat exists, has `controlledBy` `'AI'`, and a non-null `playerId`.
+ * Otherwise returns a SINGLE new state in which, atomically: the seat's
+ * `controlledBy` flips back to `'HUMAN'`; `state.botSubmissions` is
+ * filtered to drop every entry belonging to this seat's `playerId`; and the
+ * seat's grace entry, if any, is cleared. All three in one returned object
+ * — never as separate steps a caller could interleave an await between,
+ * because apps/party/src/CLAUDE.md rule 8 makes every await point an
+ * interleaving point even inside a single-threaded Durable Object.
+ *
+ * The `botSubmissions` filter is not defensive programming — it is the
+ * fix for a verified engine fact: packages/engine/src/submitOrder.ts's
+ * success path spreads a new order into `pendingOrders[agentId]` with no
+ * prior-entry check, and its rejection-code union has no "already
+ * committed" member. Without this purge, a bot submission still queued for
+ * this seat when the human reclaims it would silently overwrite the
+ * returning player's own fresh order the next time releaseBotSubmissions
+ * runs, if its `releaseAt` lands after the human's SUBMIT_ORDER.
+ *
+ * `personality`/`difficulty` are deliberately left populated after a
+ * reclaim — both are inert while `controlledBy` is `'HUMAN'` (decideForBotSeats
+ * and aiReadoutFor both gate on `controlledBy`), and keeping them is what
+ * lets a second takeover (via takeOverSeat's `seat.personality ?? ...`
+ * guard above) restore the same bot rather than swapping the player's
+ * stand-in mid-match.
+ */
+export function reclaimSeat(state: RoomState, seatIndex: number): RoomState {
+  const seat = state.seats.find((s) => s.index === seatIndex);
+  if (!seat || seat.controlledBy !== 'AI' || !seat.playerId) return state;
+
+  const playerId = seat.playerId;
+  return {
+    ...state,
+    seats: state.seats.map((s) => (s.index === seatIndex ? { ...s, controlledBy: 'HUMAN' as const } : s)),
+    botSubmissions: state.botSubmissions.filter((sub) => sub.playerId !== playerId),
+    disconnectedSeats: state.disconnectedSeats.filter((d) => d.seatIndex !== seatIndex),
+  };
+}
+
+/**
  * Releases every queued bot submission whose releaseAt has passed, through
  * submitOrder() — the identical engine validation path handleSubmitOrder
  * uses for humans (apps/party/src/CLAUDE.md rule 3). A rejected submission
