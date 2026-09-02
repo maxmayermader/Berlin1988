@@ -130,6 +130,20 @@ describe('apps/party/src/handlers.ts handleKick (pure)', () => {
     expect(result.state).toBe(state);
     expect(result.toSender).toBeNull();
   });
+
+  it("kicking a seat with a live disconnect-grace entry clears that entry — a kick mid-reconnect-window must not leave a stale grace entry pointing at a now-OPEN seat (code review CR-01)", () => {
+    const state = fixtureState([0, 1], {
+      disconnectedSeats: [{ seatIndex: 1, playerId: 'p1', graceExpiresAt: Date.now() + 20_000 }],
+    });
+    const hostConn = 'host-conn';
+    const bound = bindConnection(state, hostConn, 0);
+
+    const result = handleKick(bound, 1, hostConn, Date.now());
+
+    expect(result.state!.disconnectedSeats).toEqual([]);
+    const seat1 = result.state!.seats.find((s) => s.index === 1)!;
+    expect(seat1.kind).toBe('OPEN');
+  });
 });
 
 describe('apps/party clientMessageSchema KICK bounds', () => {

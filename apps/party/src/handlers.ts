@@ -390,7 +390,14 @@ export function handleKick(
   }
 
   const kickedConnectionId = target.connectionId;
-  const next = recomputeCountdown(vacateSeat(state, seatIndex), now, COUNTDOWN_DURATION_MS);
+  // Clear a live grace entry for this seat before vacating it — otherwise a
+  // kick landing mid-reconnect-window leaves disconnectedSeats pointing at
+  // a now-OPEN seat forever (takeOverSeat no-ops on OPEN, so nothing ever
+  // consumes the stale entry), and alarmTarget() keeps selecting its
+  // already-past graceExpiresAt as the next alarm target — an unbounded
+  // busy-fire loop for the room's remaining lifetime (found in code review).
+  const withoutGrace = clearDisconnectGrace(state, seatIndex);
+  const next = recomputeCountdown(vacateSeat(withoutGrace, seatIndex), now, COUNTDOWN_DURATION_MS);
   return { state: next, toSender: null, kickedConnectionId };
 }
 
