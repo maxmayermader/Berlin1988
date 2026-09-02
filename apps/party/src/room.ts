@@ -4,9 +4,18 @@ import { clientMessageSchema } from '@berlin/shared';
 import type { RngState } from '@berlin/shared';
 import type * as Party from 'partykit/server';
 import { decideForBotSeats, releaseBotSubmissions } from './bots.js';
-import { sendClock, sendCommitted, sendLobby, sendResolved, sendTo, sendViews } from './broadcast.js';
+import {
+  sendChat,
+  sendClock,
+  sendCommitted,
+  sendLobby,
+  sendResolved,
+  sendTo,
+  sendViews,
+} from './broadcast.js';
 import { syncDirectory } from './directoryClient.js';
 import {
+  handleChatSend,
   handleCreate,
   handleJoin,
   handleKick,
@@ -208,6 +217,17 @@ export default class MatchRoom implements Party.Server {
       if (result.toSender) sendTo(sender, result.toSender);
       // No sendLobby here — a loadout write changes nothing in the public
       // snapshot (T-2-03), and no syncAlarm either — no timer changed.
+      return;
+    }
+
+    if (message.type === 'CHAT_SEND') {
+      const result = handleChatSend(this.state, message, sender.id, now, rng);
+      await this.persist(result.state);
+      if (result.toSender) sendTo(sender, result.toSender);
+      // No syncAlarm here — no timer changed. No sendLobby — the public
+      // lobby snapshot carries nothing derived from chat. No pushDirectory
+      // — the directory's four fields are unaffected by a chat message.
+      if (result.broadcast) sendChat(this.room, result.broadcast);
       return;
     }
 

@@ -18,6 +18,10 @@ import { cardId, nodeId } from './ids.js';
 /** Authoritative codename cap. The client's own cap is UX only. */
 const codenameSchema = z.string().trim().min(1).max(20);
 
+/** 240 UTF-16 code units — the authoritative cap on a chat message's text,
+ *  enforced at the wire schema before any handler runs (T-03-16). */
+export const CHAT_TEXT_MAX = 240;
+
 /**
  * Node and card ids arrive as z.string() on the wire and are branded on the
  * way in via .transform() — a type-safety convenience only. The engine
@@ -58,6 +62,30 @@ export const agentOrderSchema = z.object({
   actions: z.array(actionSchema).min(1).max(2),
   buySilencers: z.number().int().min(0).optional(),
 });
+
+/** LOBBY while the room is in RoomPhase LOBBY/LOADOUT, MATCH once IN_GAME/ENDED
+ *  — apps/party/src/chat.ts's chatScopeFor is the single function that maps a
+ *  RoomPhase to one of these two, so D-10's separation is a property of the
+ *  phase machine rather than a convention two call sites could drift on. */
+export const chatScopeSchema = z.enum(['LOBBY', 'MATCH']);
+export type ChatScope = z.infer<typeof chatScopeSchema>;
+
+/**
+ * One chat message, exactly as broadcast to every connection. Built with
+ * `z.strictObject` so a sixth field (an agent id, a node id, a seat index)
+ * can never be added to this payload without a deliberate schema change
+ * review will see — the structural half of prohibition P-3-02 and threat
+ * T-03-15. `codename` is resolved server-side from the sending connection's
+ * bound seat (D-11); this schema carries no other identity field.
+ */
+export const chatMessageSchema = z.strictObject({
+  id: z.string(),
+  scope: chatScopeSchema,
+  codename: codenameSchema,
+  text: z.string().min(1).max(CHAT_TEXT_MAX),
+  at: z.number().int(),
+});
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
 export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({
@@ -115,8 +143,25 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     // refuses an index outside the *current* seats array.
     seatIndex: z.number().int().min(0).max(3),
   }),
+  z.strictObject({
+    type: z.literal('CHAT_SEND'),
+    // Built with z.strictObject, not z.object, so an extra field (e.g. a
+    // client-supplied codename) is a parse failure rather than silently
+    // stripped (T-03-13). Carries no codename, playerId, seatIndex, or
+    // agentId field — the sender's codename is always resolved server-side
+    // from seatFor(connectionId).codename, per D-11.
+    text: z.string().min(1).max(CHAT_TEXT_MAX),
+  }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
+
+// CHAT_SEND deliberately carries no codename/playerId/seatIndex/agentId
+// field either, for the same reason as every other message above (D-11): the
+// acting seat — and its codename — is always resolved from the connection
+// binding (apps/party/src/auth.ts seatFor), never trusted from the message
+// body. Unlike the others, this one enforces it with z.strictObject rather
+// than relying on the field simply not existing, since chat is the first
+// surface in this codebase carrying free-form human text.
 
 // SUBMIT_ORDER, like SET_READY and SET_CODENAME, carries no playerId — the
 // acting seat is resolved from the connection binding (apps/party/src/auth.ts
@@ -317,6 +362,17 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     // out. Carries only a fixed human-readable reason, no seat index, no
     // other player's identity, no room state (T-03-11).
     reason: z.string(),
+  }),
+  z.object({
+    type: z.literal('CHAT_MESSAGE'),
+    // Room-wide fan-out via apps/party/src/broadcast.ts sendChat — one
+    // identical payload to every connection, never per-recipient (T-03-14,
+    // prohibition P-3-02).
+    message: chatMessageSchema,
+  }),
+  z.object({
+    type: z.literal('CHAT_REJECTED'),
+    message: z.string(),
   }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

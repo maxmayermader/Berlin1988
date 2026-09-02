@@ -6,14 +6,16 @@ import type { ClientMessage, LobbySnapshot, ServerMessage } from '@berlin/shared
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Deckbuilder } from '../../../components/deck/Deckbuilder.js';
+import { ChatPanel } from '../../../components/lobby/ChatPanel.js';
 import { CodenameEditor } from '../../../components/lobby/CodenameEditor.js';
 import { ReadyCountdown } from '../../../components/lobby/ReadyCountdown.js';
 import { SeatCountControl } from '../../../components/lobby/SeatCountControl.js';
 import { SeatList } from '../../../components/lobby/SeatList.js';
 import { Button } from '../../../components/ui/Button.js';
+import { useChatStore } from '../../../lib/chatStore.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { loadoutsDiverge, useLoadoutStore } from '../../../lib/loadoutStore.js';
-import { submitLoadout, useRoomSocket } from '../../../lib/socket.js';
+import { sendChat, submitLoadout, useRoomSocket } from '../../../lib/socket.js';
 
 export default function LobbyPage() {
   const params = useParams<{ code: string }>();
@@ -45,6 +47,11 @@ export default function LobbyPage() {
   // type — the plan's own reasoning is that a rare race is not worth a new
   // message type), cleared the same way as seatCountError.
   const [kickError, setKickError] = useState<string | null>(null);
+  // Set from a CHAT_REJECTED frame, cleared on the next accepted
+  // CHAT_MESSAGE — mirrors seatCountError/kickError's "the next
+  // authoritative frame wins" discipline.
+  const [chatError, setChatError] = useState<string | null>(null);
+  const lobbyChat = useChatStore((s) => s.messages.LOBBY);
 
   const socket = useRoomSocket(code, identity.codename, (message: ServerMessage) => {
     if (message.type === 'ROOM_STATE') {
@@ -67,6 +74,8 @@ export default function LobbyPage() {
     if (message.type === 'KICKED') {
       router.push('/');
     }
+    if (message.type === 'CHAT_REJECTED') setChatError(message.message);
+    if (message.type === 'CHAT_MESSAGE') setChatError(null);
   });
 
   useEffect(() => {
@@ -164,6 +173,10 @@ export default function LobbyPage() {
     submitLoadout(socket, loadout);
   }
 
+  function handleSendChat(text: string) {
+    sendChat(socket, text);
+  }
+
   const showDivergenceNotice = !editingLoadout && loadoutsDiverge(loadout, lastAcceptedCards);
 
   return (
@@ -223,6 +236,7 @@ export default function LobbyPage() {
             </p>
           )}
           <ReadyCountdown snapshot={snapshot} />
+          <ChatPanel messages={lobbyChat} onSend={handleSendChat} error={chatError} />
         </>
       )}
     </main>

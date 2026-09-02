@@ -1,6 +1,6 @@
 import { projectView } from '@berlin/engine';
 import { playerId as toPlayerId, serverMessageSchema } from '@berlin/shared';
-import type { GameState, ServerMessage } from '@berlin/shared';
+import type { ChatMessage, GameState, ServerMessage } from '@berlin/shared';
 import type * as Party from 'partykit/server';
 import { seatFor } from './auth.js';
 import { toSnapshot, type RoomState } from './state.js';
@@ -109,6 +109,28 @@ export function sendClock(room: Party.Room, state: RoomState): void {
   };
   const parsed = serverMessageSchema.parse(message);
   const payload = JSON.stringify(parsed);
+  for (const connection of room.getConnections()) {
+    connection.send(payload);
+  }
+}
+
+/**
+ * CHAT_MESSAGE — one payload built once, parsed once against
+ * serverMessageSchema once, stringified once, and sent as that exact same
+ * string to every connection from room.getConnections(). No seatFor call, no
+ * conditional inside the send loop, no per-recipient payload construction —
+ * this shape is deliberate and load-bearing (prohibition P-3-02, threat
+ * T-03-14): a future filtered or scoped delivery path (a team channel,
+ * suppressing eliminated seats, a typing indicator, per-recipient read
+ * receipts) would leak state through *who receives what*, which no
+ * payload-level review of chatMessageSchema alone would ever catch. If a
+ * later change needs recipient-specific chat delivery, that is an
+ * architectural decision, not a tweak to this function.
+ */
+export function sendChat(room: Party.Room, message: ChatMessage): void {
+  const parsed: ServerMessage = { type: 'CHAT_MESSAGE', message };
+  const validated = serverMessageSchema.parse(parsed);
+  const payload = JSON.stringify(validated);
   for (const connection of room.getConnections()) {
     connection.send(payload);
   }

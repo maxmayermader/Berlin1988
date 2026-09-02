@@ -3,6 +3,7 @@ import {
   agentId as toAgentId,
   playerId as toPlayerId,
   type AgentOrder,
+  type ChatMessage,
   type ClientMessage,
   type RngState,
   type ServerMessage,
@@ -481,4 +482,61 @@ export function handleSubmitLoadout(
     state: nextState,
     toSender: { type: 'LOADOUT_ACK', cards: message.cards.map((id) => id as string) },
   };
+}
+
+export interface ChatSendResult {
+  state: RoomState | null;
+  /** Sent only to the sender — CHAT_REJECTED on an empty/whitespace-only
+   *  message, otherwise null (a successful send gets no dedicated ack; the
+   *  sender learns its message landed the same way every other connection
+   *  does, from the room-wide CHAT_MESSAGE broadcast). */
+  toSender: ServerMessage | null;
+  /** The message every connection in the room should receive via
+   *  broadcast.ts's sendChat, or null on any rejected/no-op path. */
+  broadcast: ChatMessage | null;
+}
+
+/**
+ * CHAT_SEND — the first handler in this codebase resolving free-form human
+ * text (apps/party/CLAUDE.md rule 2 still applies: the acting seat comes
+ * from seatFor(connectionId), never from the message body — the CHAT_SEND
+ * schema has no identity field to read in the first place, per D-11).
+ * Trims the incoming text and rejects an empty result with CHAT_REJECTED —
+ * the client's own canSend() gate is UX only; this is the enforcement,
+ * mirroring how handleSubmitLoadout re-validates behind the deckbuilder's
+ * own gate. `built.codename` is always `seat.codename` — nothing about the
+ * message's attribution is ever read from `message`.
+ */
+export function handleChatSend(
+  state: RoomState | null,
+  message: Extract<ClientMessage, { type: 'CHAT_SEND' }>,
+  connectionId: string,
+  now: number,
+  rng: RngState,
+): ChatSendResult {
+  if (!state) return { state: null, toSender: null, broadcast: null };
+
+  const seat = seatFor(state, connectionId);
+  if (!seat || !seat.playerId || !seat.codename) {
+    return { state, toSender: null, broadcast: null };
+  }
+
+  const text = message.text.trim();
+  if (text.length === 0) {
+    return {
+      state,
+      toSender: { type: 'CHAT_REJECTED', message: 'Message not sent — try again.' },
+      broadcast: null,
+    };
+  }
+
+  const built: ChatMessage = {
+    id: mintToken(rng),
+    scope: 'LOBBY',
+    codename: seat.codename,
+    text,
+    at: now,
+  };
+
+  return { state, toSender: null, broadcast: built };
 }
