@@ -15,6 +15,8 @@ function seat(overrides: Partial<LobbySeat> & { index: number }): LobbySeat {
     faction: 'RED',
     kind: 'OPEN',
     ready: false,
+    aiReadout: null,
+    disconnected: false,
     ...overrides,
   };
 }
@@ -43,15 +45,31 @@ describe('apps/web/lib/seatRows (pure view model)', () => {
     expect(rows[0]).toMatchObject({ kind: 'OPEN', badgeText: null, label: null });
   });
 
-  it('a BOT seat yields isAi true; a HUMAN seat yields isAi false', () => {
+  it('seatRows sets status AI and a non-null aiReadout for an AI-controlled seat, and status NORMAL with a null aiReadout for a human seat', () => {
     const rows = seatRows(
       snapshot([
-        seat({ index: 0, playerId: 'b0', codename: 'Marek', kind: 'BOT' }),
-        seat({ index: 1, playerId: 'p1', codename: 'Katja', kind: 'HUMAN' }),
+        seat({ index: 0, playerId: 'b0', codename: 'Marek', kind: 'BOT', aiReadout: 'Katja Reiner the Ghost' }),
+        seat({ index: 1, playerId: 'p1', codename: 'Katja', kind: 'HUMAN', aiReadout: null }),
       ]),
     );
-    expect(rows[0]!.isAi).toBe(true);
-    expect(rows[1]!.isAi).toBe(false);
+    expect(rows[0]!.status).toBe('AI');
+    expect(rows[0]!.aiReadout).toBe('Katja Reiner the Ghost');
+    expect(rows[1]!.status).toBe('NORMAL');
+    expect(rows[1]!.aiReadout).toBeNull();
+  });
+
+  it('two AI seats sharing one personality produce two rows with equal aiReadout and different indices — neither is merged or suppressed', () => {
+    const rows = seatRows(
+      snapshot([
+        seat({ index: 0, playerId: 'b0', codename: 'Katja', kind: 'BOT', aiReadout: 'Katja Reiner the Ghost' }),
+        seat({ index: 1, playerId: 'b1', codename: 'Katja', kind: 'BOT', aiReadout: 'Katja Reiner the Ghost' }),
+      ]),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.aiReadout).toBe(rows[1]!.aiReadout);
+    expect(rows[0]!.index).not.toBe(rows[1]!.index);
+    expect(rows[0]!.status).toBe('AI');
+    expect(rows[1]!.status).toBe('AI');
   });
 
   it('preserves snapshot.seats array order exactly, before and after a ready toggle', () => {

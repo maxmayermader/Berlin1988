@@ -38,6 +38,7 @@ function fixtureRoomState(overrides: Partial<MatchSettings> = {}): RoomState {
     connectionId: null,
     personality: null,
     difficulty: null,
+    controlledBy: s.kind === 'BOT' ? 'AI' : 'HUMAN',
     loadout: null,
   }));
   return {

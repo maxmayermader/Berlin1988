@@ -10,6 +10,7 @@ import type {
   PersonalityId,
   Sector,
 } from '@berlin/shared';
+import { aiReadoutFor } from './readout.js';
 
 /**
  * RoomState.phase is a room-local lifecycle concept
@@ -40,18 +41,42 @@ export const COUNTDOWN_DURATION_MS = 10_000;
 /**
  * A lobby seat extended with server-only fields. `token` and `connectionId`
  * never cross the wire — toSnapshot() strips both before a ROOM_STATE frame
- * is built.
+ * is built. `aiReadout` and `disconnected` are deliberately Omit'd from the
+ * base `LobbySeat` shape here — they are output-only values toSnapshot()
+ * derives fresh on every call (from `personality`/`controlledBy` and from
+ * `disconnectedSeats` respectively), never stored fields a RoomSeat itself
+ * carries.
  */
-export interface RoomSeat extends LobbySeat {
+export interface RoomSeat extends Omit<LobbySeat, 'aiReadout' | 'disconnected'> {
   /** Room-minted opaque token binding a future connection to this seat. */
   token: string | null;
   /** The live connection currently bound to this seat, if any. */
   connectionId: string | null;
-  /** Server-only, never in toSnapshot() — LOBBY-07's AI name/personality
-   *  readout is Phase 3 scope. Populated only for BOT seats, by
-   *  fillEmptySeatsWithBots at match start. */
+  /** Server-only, never in toSnapshot() directly — the public
+   *  `aiReadoutFor(seat)` string derived from it is what crosses the wire
+   *  (LOBBY-07). Populated for a lobby-fill BOT seat by
+   *  fillEmptySeatsWithBots at match start, and for a HUMAN-kind seat by
+   *  takeOverSeat (Task 3, D-08) after its disconnect grace period expires. */
   personality: PersonalityId | null;
   difficulty: Difficulty | null;
+  /**
+   * Who is *currently* deciding this seat's orders — deliberately distinct
+   * from `kind`, which records only how the seat *originated* (a human join
+   * or a lobby-fill bot) and never changes after that. `controlledBy` is
+   * null for an OPEN seat, `'HUMAN'` for any seat a player is actively
+   * driving, and `'AI'` for both a lobby-fill bot seat and a HUMAN-kind seat
+   * whose player dropped and whose disconnect grace period expired
+   * (Task 2/3, D-07/D-08). A reclaim flips a taken-over HUMAN-kind seat's
+   * `controlledBy` back to `'HUMAN'` while `kind`, `playerId`, `token` and
+   * `codename` stay exactly as they were — that preservation is what lets a
+   * later reclaim find the seat again. Every place in this codebase that
+   * used to ask "is this seat a bot" via `kind` must now ask "is this seat
+   * currently AI-driven" via `controlledBy` instead; `kind` remains correct
+   * only for questions about the seat's origin (e.g. `buildMatchConfig`'s
+   * `SeatConfig.kind`, which must not retroactively change when a mid-match
+   * takeover fires).
+   */
+  controlledBy: 'HUMAN' | 'AI' | null;
   /** Server-only, never in toSnapshot()/LobbySeat/lobbySeatSchema — a
    *  loadout is hidden pre-match information (02-RESEARCH.md Pitfall 5,
    *  docs/GAME_DESIGN.md §6.3: card *usage* is public, card *possession*
@@ -120,6 +145,7 @@ function openSeat(index: number, faction: Sector): RoomSeat {
     connectionId: null,
     personality: null,
     difficulty: null,
+    controlledBy: null,
     loadout: null,
   };
 }
@@ -304,7 +330,11 @@ export function recomputeCountdown(state: RoomState, now: number, durationMs: nu
   return state;
 }
 
-/** Strips server-only fields (token, connectionId) for the wire. */
+/** Strips server-only fields (token, connectionId, personality, difficulty,
+ *  controlledBy, loadout) for the wire, replacing personality with the
+ *  formatted `aiReadout` string and folding a live disconnect-grace entry
+ *  into `disconnected` — the only two personality/connection-derived values
+ *  that ever cross the wire (LOBBY-06, LOBBY-07). */
 export function toSnapshot(state: RoomState): LobbySnapshot {
   return {
     code: state.code,
@@ -318,6 +348,11 @@ export function toSnapshot(state: RoomState): LobbySnapshot {
       faction: seat.faction,
       kind: seat.kind,
       ready: seat.ready,
+      aiReadout: aiReadoutFor(seat),
+      // Populated for real in Task 2 from state.disconnectedSeats; hardcoded
+      // false here so this schema change and toSnapshot's own change land in
+      // the same task rather than drifting (03-RESEARCH.md Pitfall 6).
+      disconnected: false,
     })),
   };
 }

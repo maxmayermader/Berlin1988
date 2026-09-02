@@ -516,7 +516,10 @@ describe('apps/party startMatch dealing per-seat loadouts (Task 3)', () => {
     const snapshot = last(host.received, 'ROOM_STATE')!.snapshot;
     expect(snapshot.seats.length).toBeGreaterThan(0);
     for (const seat of snapshot.seats) {
-      expect(Object.keys(seat)).toHaveLength(6);
+      // 8, not 6, as of Plan 03-04 Task 1 — lobbySeatSchema gained aiReadout
+      // and disconnected (LOBBY-06/LOBBY-07). Still no loadout/personality
+      // field, which is what this test actually guards against.
+      expect(Object.keys(seat)).toHaveLength(8);
     }
   });
 
@@ -690,13 +693,16 @@ describe('apps/party the in-lobby editor leaks nothing beyond the existing ready
       );
     }
 
-    // No new field, no new message type — every ROOM_STATE seat object the
-    // guest ever received still has exactly the same six public keys.
+    // No new field from a loadout submission specifically, no new message
+    // type — every ROOM_STATE seat object the guest ever received still has
+    // exactly the same eight public keys (8, not 6, as of Plan 03-04 Task 1
+    // — lobbySeatSchema gained aiReadout and disconnected for LOBBY-06/07;
+    // still no loadout/personality field, which is what this test guards).
     const roomStateFrames = guest.received.filter((m) => m.type === 'ROOM_STATE');
     expect(roomStateFrames.length).toBeGreaterThan(0);
     for (const frame of roomStateFrames) {
       for (const seat of frame.snapshot.seats) {
-        expect(Object.keys(seat)).toHaveLength(6);
+        expect(Object.keys(seat)).toHaveLength(8);
       }
     }
   });

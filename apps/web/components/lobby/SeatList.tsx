@@ -88,11 +88,13 @@ function SeatRowBody({ row }: { row: SeatRow }) {
   return (
     <>
       <span className="truncate">
-        {row.label}
-        {row.isAi && (
-          <span className="ml-2 rounded border border-[#e2e8f0] px-1 text-xs font-semibold uppercase text-[#64748b]">
-            AI
-          </span>
+        {row.status === 'AI' ? (
+          // 03-UI-SPEC.md: the AI readout replaces the bare badge entirely —
+          // plain body-neutral text at the Label size (14px), deliberately
+          // no accent color (it's informational, not interactive).
+          <span className="text-sm">{row.aiReadout}</span>
+        ) : (
+          row.label
         )}
       </span>
       <span

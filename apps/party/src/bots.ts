@@ -46,6 +46,7 @@ export function fillEmptySeatsWithBots(state: RoomState, rng: RngState): RoomSta
       kind: 'BOT' as const,
       personality,
       difficulty: BOT_DIFFICULTY,
+      controlledBy: 'AI' as const,
       ready: true,
     };
   });
@@ -79,7 +80,10 @@ export function decideForBotSeats(
 
   const submissions: BotSubmission[] = [];
   for (const seat of state.seats) {
-    if (seat.kind !== 'BOT' || !seat.playerId || !seat.personality) continue;
+    // Reads controlledBy, not kind — this is what makes a mid-match
+    // AI-takeover seat (Task 3, D-08) decide orders exactly like an
+    // original lobby-fill bot seat, without ever becoming one.
+    if (seat.controlledBy !== 'AI' || !seat.playerId || !seat.personality) continue;
 
     const view = projectView(gameState, toPlayerId(seat.playerId));
     if (view.self.eliminated) continue;

@@ -217,6 +217,18 @@ const orderRejectionCodeSchema = z.enum([
  * A single lobby seat, public-by-construction: no field here can hold agent
  * positions, safehouse, traps, or cooldowns. Safe to fan out to every
  * connection in the room without a per-recipient projection.
+ *
+ * `aiReadout` and `disconnected` (Phase 3 Plan 4) are the one exception to
+ * "nothing derived from a bot's identity crosses the wire" that this comment
+ * used to imply — and it is a deliberate one. A personality's name and title
+ * are explicitly NOT hidden state: `docs/AI_OPPONENTS.md` publishes every
+ * personality's habits and documented exploitable tell, and LOBBY-07
+ * requires the readout string. This is unlike agent positions, safehouse,
+ * traps and cooldowns — none of which any field on this schema can hold.
+ * `aiReadout` carries the pre-formatted "{Name} the {Title}" string (never a
+ * raw personality id, which would just be a second, unstyled way to say the
+ * same thing); `disconnected` is true only while a live grace-period entry
+ * exists for the seat (Task 2).
  */
 export const lobbySeatSchema = z.object({
   index: z.number().int().min(0),
@@ -225,6 +237,8 @@ export const lobbySeatSchema = z.object({
   faction: sectorSchema,
   kind: seatKindSchema,
   ready: z.boolean(),
+  aiReadout: z.string().nullable(),
+  disconnected: z.boolean(),
 });
 export type LobbySeat = z.infer<typeof lobbySeatSchema>;
 

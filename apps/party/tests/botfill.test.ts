@@ -1,10 +1,11 @@
 import { consumablePassivesIn, HUNTER, OLIGARCH, PHANTOM, seedRng, SPIDER } from '@berlin/engine';
-import { DIFFICULTY_IDS } from '@berlin/ai';
+import { DIFFICULTY_IDS, PERSONALITIES } from '@berlin/ai';
 import type { Loadout, Sector, ServerMessage } from '@berlin/shared';
 import { describe, expect, it } from 'vitest';
-import { fillEmptySeatsWithBots, BOT_DIFFICULTY } from '../src/bots.js';
+import { decideForBotSeats, fillEmptySeatsWithBots, BOT_DIFFICULTY } from '../src/bots.js';
+import { aiReadoutFor } from '../src/readout.js';
 import { buildMatchConfig, startMatch } from '../src/settings.js';
-import { emptySeats, type RoomState } from '../src/state.js';
+import { emptySeats, toSnapshot, type RoomSeat, type RoomState } from '../src/state.js';
 import { createTestRoom } from './helpers.js';
 
 /** Mirrors createMatch.ts's own defaultLoadoutFor(faction) mapping — not
@@ -35,7 +36,13 @@ function last<T extends ServerMessage['type']>(
 function fixtureRoom(humanCount: number, matchId = 'ABCDEF'): RoomState {
   const seats = emptySeats().map((seat, i) =>
     i < humanCount
-      ? { ...seat, playerId: `p${i}`, codename: `Seat ${i}`, kind: 'HUMAN' as const }
+      ? {
+          ...seat,
+          playerId: `p${i}`,
+          codename: `Seat ${i}`,
+          kind: 'HUMAN' as const,
+          controlledBy: 'HUMAN' as const,
+        }
       : seat,
   );
   return {
@@ -100,6 +107,96 @@ describe('apps/party/src/bots.ts fillEmptySeatsWithBots', () => {
     const filled = fillEmptySeatsWithBots({ ...state, seats }, seedRng('seed-e'));
     expect(filled.seats.find((s) => s.index === 1)?.kind).toBe('HUMAN');
     expect(filled.seats.filter((s) => s.kind === 'BOT')).toHaveLength(2);
+  });
+
+  it('sets controlledBy AI on every seat it fills, and leaves an already-occupied seat untouched', () => {
+    const state = fixtureRoom(1);
+    const seats = state.seats.map((s) =>
+      s.index === 1 ? { ...s, playerId: 'p1-late', codename: 'Late', kind: 'HUMAN' as const, controlledBy: 'HUMAN' as const } : s,
+    );
+    const filled = fillEmptySeatsWithBots({ ...state, seats }, seedRng('seed-controlled'));
+    for (const seat of filled.seats.filter((s) => s.kind === 'BOT')) {
+      expect(seat.controlledBy).toBe('AI');
+    }
+    expect(filled.seats.find((s) => s.index === 0)?.controlledBy).toBe('HUMAN');
+    expect(filled.seats.find((s) => s.index === 1)?.controlledBy).toBe('HUMAN');
+  });
+});
+
+describe('apps/party/src/readout.ts aiReadoutFor', () => {
+  function botSeat(overrides: Partial<RoomSeat> = {}): RoomSeat {
+    return {
+      index: 0,
+      playerId: 'bot-0-katja',
+      codename: 'Katja',
+      faction: 'RED',
+      kind: 'BOT',
+      ready: true,
+      token: null,
+      connectionId: null,
+      personality: 'KATJA',
+      difficulty: 'HANDLER',
+      controlledBy: 'AI',
+      loadout: null,
+      ...overrides,
+    };
+  }
+
+  it('returns "Katja Reiner the Ghost" for a KATJA-personality AI-controlled seat', () => {
+    // Personality.title is already "The X" (e.g. 'The Ghost') — the exact
+    // readout string is asserted literally so a future change to either the
+    // name/title data or the join logic is caught here.
+    expect(PERSONALITIES.KATJA.name).toBe('Katja Reiner');
+    expect(PERSONALITIES.KATJA.title).toBe('The Ghost');
+    expect(aiReadoutFor(botSeat())).toBe('Katja Reiner the Ghost');
+  });
+
+  it('returns null for a seat with controlledBy HUMAN and a non-null personality', () => {
+    expect(aiReadoutFor(botSeat({ controlledBy: 'HUMAN' }))).toBeNull();
+  });
+
+  it('returns null for an OPEN seat', () => {
+    const state = fixtureRoom(0);
+    expect(aiReadoutFor(state.seats[0]!)).toBeNull();
+  });
+});
+
+describe('apps/party/src/state.ts toSnapshot AI readout + disconnected', () => {
+  it('emits aiReadout and disconnected on every seat, and no personality or difficulty field', () => {
+    const state = fillEmptySeatsWithBots(fixtureRoom(1), seedRng('seed-snapshot'));
+    const snap = toSnapshot(state);
+    for (const seat of snap.seats) {
+      expect(Object.keys(seat).sort()).toEqual(
+        ['aiReadout', 'codename', 'disconnected', 'faction', 'index', 'kind', 'playerId', 'ready'].sort(),
+      );
+    }
+    const botRow = snap.seats.find((s) => s.kind === 'BOT')!;
+    expect(botRow.aiReadout).not.toBeNull();
+    expect(botRow.disconnected).toBe(false);
+    const humanRow = snap.seats.find((s) => s.kind === 'HUMAN')!;
+    expect(humanRow.aiReadout).toBeNull();
+  });
+});
+
+describe('apps/party/src/bots.ts decideForBotSeats seat filter', () => {
+  it('decides for a controlledBy AI seat regardless of kind, and skips a controlledBy HUMAN seat regardless of kind', () => {
+    const room = fixtureRoom(1);
+    const started = startMatch(room, Date.now());
+    // Flip the human seat to controlledBy AI without changing kind, and the
+    // bot seat to controlledBy HUMAN without changing kind — decideForBotSeats
+    // must follow controlledBy, not kind.
+    const seats = started.seats.map((s) => {
+      if (s.index === 0) return { ...s, controlledBy: 'AI' as const, personality: 'KATJA' as const };
+      if (s.kind === 'BOT') return { ...s, controlledBy: 'HUMAN' as const };
+      return s;
+    });
+    const flipped = { ...started, seats };
+    const submissions = decideForBotSeats(flipped, Date.now(), seedRng('seed-decide'), new Map());
+    const decidedPlayerIds = new Set(submissions.map((s) => s.playerId));
+    expect(decidedPlayerIds.has(seats[0]!.playerId!)).toBe(true);
+    for (const seat of seats.filter((s) => s.kind === 'BOT')) {
+      expect(decidedPlayerIds.has(seat.playerId!)).toBe(false);
+    }
   });
 });
 

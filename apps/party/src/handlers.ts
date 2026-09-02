@@ -88,6 +88,7 @@ export function handleCreate(
     kind: 'HUMAN',
     token,
     connectionId,
+    controlledBy: 'HUMAN',
   };
 
   const state: RoomState = {
@@ -184,7 +185,15 @@ export function handleJoin(
   const token = mintToken(rng);
   const seats = state.seats.map((seat) =>
     seat.index === openSeat.index
-      ? { ...seat, playerId, codename: message.codename, kind: 'HUMAN' as const, token, connectionId }
+      ? {
+          ...seat,
+          playerId,
+          codename: message.codename,
+          kind: 'HUMAN' as const,
+          token,
+          connectionId,
+          controlledBy: 'HUMAN' as const,
+        }
       : seat,
   );
   // A new join recomputes the threshold — an extra filled seat can drop an
