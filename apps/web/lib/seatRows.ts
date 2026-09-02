@@ -74,14 +74,24 @@ export function seatRows(
     // RECONNECTING beats NORMAL. An AI-controlled seat's aiReadout is
     // always non-null (apps/party/src/readout.ts's aiReadoutFor), so this
     // is what makes "never two states at once" true by construction rather
-    // than a rendering convention (Task 2 extends this with `disconnected`).
-    const status: SeatRow['status'] = seat.aiReadout !== null ? 'AI' : 'NORMAL';
+    // than a rendering convention — a seat can in principle be both
+    // AI-controlled AND still carry a stale disconnected flag for a beat
+    // (Task 3's takeOverSeat clears the grace entry in the same transition,
+    // but this precedence is the client-side backstop regardless), and this
+    // ordering is what guarantees it still renders as exactly one state.
+    const status: SeatRow['status'] =
+      seat.aiReadout !== null ? 'AI' : seat.disconnected ? 'RECONNECTING' : 'NORMAL';
     return {
       index: seat.index,
       playerId: seat.playerId,
       label: seat.codename,
       kind: seat.kind,
-      badgeText: seat.ready ? READY_BADGE_TEXT : NOT_READY_BADGE_TEXT,
+      badgeText:
+        status === 'RECONNECTING'
+          ? RECONNECTING_LABEL
+          : seat.ready
+            ? READY_BADGE_TEXT
+            : NOT_READY_BADGE_TEXT,
       status,
       aiReadout: seat.aiReadout,
       canKick: viewerIsHost && seat.playerId !== snapshot.hostPlayerId,

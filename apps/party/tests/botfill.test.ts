@@ -57,6 +57,7 @@ function fixtureRoom(humanCount: number, matchId = 'ABCDEF'): RoomState {
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    disconnectedSeats: [],
   };
 }
 

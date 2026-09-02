@@ -14,6 +14,7 @@ import {
   sendTo,
   sendViews,
 } from './broadcast.js';
+import { seatFor } from './auth.js';
 import { syncDirectory } from './directoryClient.js';
 import {
   handleChatSend,
@@ -29,8 +30,8 @@ import {
 import { newJoinCode } from './joinCode.js';
 import { closeRound, shouldCloseRound } from './round.js';
 import { startMatch } from './settings.js';
-import type { RoomState } from './state.js';
-import { onRoundAlarm, scheduleRoundDeadline } from './timers.js';
+import { DISCONNECT_GRACE_MS, type RoomState } from './state.js';
+import { onRoundAlarm, scheduleDisconnectGrace, scheduleRoundDeadline } from './timers.js';
 
 const MINT_ROOM_ID = '_new';
 const STATE_KEY = 'state';
@@ -261,10 +262,37 @@ export default class MatchRoom implements Party.Server {
     await this.pushDirectory(result.state);
   }
 
-  onClose(): void {
-    // No reconnection handling in Phase 1 (D-11) — an accepted, documented
-    // gap, not a bug. A dropped connection simply leaves its seat bound to a
-    // now-dead connection id until the room is next touched.
+  /**
+   * D-07 supersedes Phase 1 D-11's "no reconnection handling" — a dropped
+   * connection now starts a bounded grace window instead of leaving its
+   * seat bound to a dead connection id indefinitely. Resolves the seat via
+   * seatFor(connectionId), exactly like every inbound handler (apps/party/src/CLAUDE.md
+   * rule 2); returns immediately when there is none (an unbound connection
+   * closing — e.g. the transient create/join handshake socket — changes
+   * nothing). Otherwise: schedule the grace entry, clear this seat's
+   * connectionId (so a later seatFor can never resolve a now-dead
+   * connection), persist, resync the room's single alarm slot, and
+   * broadcast so every remaining player's seat list flips to
+   * "Reconnecting…" on the same frame. The directory is deliberately left
+   * untouched here — a lobby with a briefly-dropped player is still open
+   * and still joinable, and seatsFilled is unchanged because the seat is
+   * still occupied.
+   */
+  async onClose(connection: Party.Connection): Promise<void> {
+    if (!this.state) return;
+    const seat = seatFor(this.state, connection.id);
+    if (!seat) return;
+
+    const now = Date.now();
+    const withGrace = scheduleDisconnectGrace(this.state, seat.index, now, DISCONNECT_GRACE_MS);
+    const seats = withGrace.seats.map((s) =>
+      s.index === seat.index ? { ...s, connectionId: null } : s,
+    );
+    const next: RoomState = { ...withGrace, seats };
+
+    await this.persist(next);
+    await this.syncAlarm(next);
+    sendLobby(this.room, next);
   }
 
   /**
@@ -400,17 +428,14 @@ export default class MatchRoom implements Party.Server {
   }
 
   /**
-   * Mirrors the room's active timer into a real Durable Object alarm:
-   * RoomState.startsAt during LOBBY/LOADOUT, or — during IN_GAME — the
-   * earlier of the round deadline and the next queued bot release, since
-   * the room's single alarm slot must fire for whichever comes first.
+   * Mirrors the room's active timer(s) into a real Durable Object alarm.
    * Called unconditionally is intentional and safe: setAlarm with the same
    * target time is idempotent, and deleteAlarm on a room with no alarm
    * scheduled is a no-op — so this never needs to diff against the
    * previous value.
    */
   private async syncAlarm(state: RoomState): Promise<void> {
-    const target = state.phase === 'IN_GAME' ? this.roundAlarmTarget(state) : state.startsAt;
+    const target = this.alarmTarget(state);
     if (target !== null) {
       await this.room.storage.setAlarm(target);
     } else {
@@ -418,10 +443,29 @@ export default class MatchRoom implements Party.Server {
     }
   }
 
-  private roundAlarmTarget(state: RoomState): number | null {
+  /**
+   * The single Durable Object alarm slot's next-firing target, covering
+   * every phase (Task 2 — this used to be IN_GAME-only `roundAlarmTarget`,
+   * branched around in `syncAlarm`; a disconnect can happen from a lobby
+   * just as easily as from a live match, so the grace-expiry candidate
+   * belongs in every phase, not only IN_GAME). Candidates: `startsAt`
+   * during LOBBY/LOADOUT; `deadlineAt` and every queued bot submission's
+   * `releaseAt` during IN_GAME; every `disconnectedSeats[].graceExpiresAt`
+   * in ANY phase. Returns the earliest of whichever candidates apply, or
+   * null when there are none — the room's alarm must fire for whichever
+   * event comes first, exactly as it already does for the deadline-versus-
+   * bot-release pair.
+   */
+  private alarmTarget(state: RoomState): number | null {
     const targets: number[] = [];
-    if (state.deadlineAt !== null) targets.push(state.deadlineAt);
-    for (const submission of state.botSubmissions) targets.push(submission.releaseAt);
+    if (state.phase === 'LOBBY' || state.phase === 'LOADOUT') {
+      if (state.startsAt !== null) targets.push(state.startsAt);
+    }
+    if (state.phase === 'IN_GAME') {
+      if (state.deadlineAt !== null) targets.push(state.deadlineAt);
+      for (const submission of state.botSubmissions) targets.push(submission.releaseAt);
+    }
+    for (const grace of state.disconnectedSeats) targets.push(grace.graceExpiresAt);
     return targets.length > 0 ? Math.min(...targets) : null;
   }
 }

@@ -53,6 +53,7 @@ function fixtureRoomState(overrides: Partial<MatchSettings> = {}): RoomState {
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    disconnectedSeats: [],
   };
 }
 

@@ -63,6 +63,14 @@ export interface TestConnection {
   send(message: ClientMessage): Promise<void>;
   /** The most recently received frame, if any. */
   last(): ServerMessage | undefined;
+  /** Simulates this connection dropping — invokes the room's onClose
+   *  handler directly with this connection, exactly like a real closed
+   *  WebSocket would (03-04-PLAN.md Task 2). The connection is removed from
+   *  the room's connection set first, mirroring PartyKit's own behaviour
+   *  (a closed connection no longer appears in room.getConnections() by the
+   *  time onClose runs), so any sendLobby the handler triggers cannot
+   *  attempt to write back to this now-dead connection. */
+  close(): Promise<void>;
 }
 
 export interface TestRoom {
@@ -99,6 +107,12 @@ export interface TestRoom {
    * a real Durable Object's own getAlarm() would report.
    */
   alarmScheduled(): Promise<boolean>;
+  /** The fake Durable Object storage's raw scheduled alarm time, or null —
+   *  unlike alarmScheduled()'s boolean, this exposes the actual target so a
+   *  test can assert WHICH candidate (a round deadline, a bot release, a
+   *  countdown, or — Task 2 — a disconnect-grace expiry) won the room's
+   *  single-slot Math.min (03-04-PLAN.md Task 2). */
+  alarmAt(): Promise<number | null>;
   /** Every DirectoryCommand this room's syncDirectory() calls have
    *  successfully parsed and sent to the fake directory party, in send
    *  order — 03-01-PLAN.md Task 1. */
@@ -188,6 +202,9 @@ export function createTestRoom(id = 'test-room'): TestRoom {
     async alarmScheduled(): Promise<boolean> {
       return (await storage.getAlarm()) !== null;
     },
+    async alarmAt(): Promise<number | null> {
+      return storage.getAlarm();
+    },
     directoryCommands(): DirectoryCommand[] {
       return [...directoryCommandLog];
     },
@@ -264,6 +281,10 @@ export function createTestRoom(id = 'test-room'): TestRoom {
         },
         last(): ServerMessage | undefined {
           return received[received.length - 1];
+        },
+        async close(): Promise<void> {
+          connections.delete(connId);
+          await instance.onClose?.(fakeConnection as unknown as Party.Connection);
         },
       };
     },

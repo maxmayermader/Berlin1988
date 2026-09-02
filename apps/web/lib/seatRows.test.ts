@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   NOT_READY_BADGE_TEXT,
   READY_BADGE_TEXT,
+  RECONNECTING_LABEL,
   readySummary,
   seatRows,
   shouldShowCountdown,
@@ -70,6 +71,34 @@ describe('apps/web/lib/seatRows (pure view model)', () => {
     expect(rows[0]!.index).not.toBe(rows[1]!.index);
     expect(rows[0]!.status).toBe('AI');
     expect(rows[1]!.status).toBe('AI');
+  });
+
+  it('a disconnected HUMAN seat yields status RECONNECTING and badgeText RECONNECTING_LABEL, never the ready badge', () => {
+    const rows = seatRows(
+      snapshot([
+        seat({ index: 0, playerId: 'p0', codename: 'Vogel', kind: 'HUMAN', ready: false, disconnected: true }),
+      ]),
+    );
+    expect(rows[0]!.status).toBe('RECONNECTING');
+    expect(rows[0]!.badgeText).toBe(RECONNECTING_LABEL);
+    expect(rows[0]!.aiReadout).toBeNull();
+  });
+
+  it('a seat that is both disconnected and has a non-null aiReadout returns status AI, never RECONNECTING — never two states at once', () => {
+    const rows = seatRows(
+      snapshot([
+        seat({
+          index: 0,
+          playerId: 'p0',
+          codename: 'Vogel',
+          kind: 'HUMAN',
+          disconnected: true,
+          aiReadout: 'Katja Reiner the Ghost',
+        }),
+      ]),
+    );
+    expect(rows[0]!.status).toBe('AI');
+    expect(rows[0]!.aiReadout).toBe('Katja Reiner the Ghost');
   });
 
   it('preserves snapshot.seats array order exactly, before and after a ready toggle', () => {

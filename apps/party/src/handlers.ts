@@ -26,6 +26,7 @@ import {
   vacateSeat,
   type RoomState,
 } from './state.js';
+import { clearDisconnectGrace } from './timers.js';
 
 const JOIN_CODE_SHAPE = /^[A-Z0-9]{6}$/;
 
@@ -103,6 +104,7 @@ export function handleCreate(
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    disconnectedSeats: [],
   };
 
   return {
@@ -144,8 +146,16 @@ export function handleJoin(
   if (message.token) {
     const existing = state.seats.find((seat) => seat.token === message.token);
     if (existing) {
+      // The D-07 silent-reclaim path: a token-matched JOIN always clears
+      // any live grace entry for this seat, whether or not AI has taken
+      // over yet — partysocket's own auto-reconnect already re-sends JOIN
+      // with the stored token on open, so this one branch is both "you
+      // came back before the grace window closed" (no AI ever involved)
+      // and, from Task 3 onward, "you came back after AI took over" (D-08
+      // extends this same branch with reclaimSeat's control-flip + purge).
+      const regrace = clearDisconnectGrace(state, existing.index);
       const rebound = recomputeCountdown(
-        bindConnection(state, connectionId, existing.index),
+        bindConnection(regrace, connectionId, existing.index),
         now,
         COUNTDOWN_DURATION_MS,
       );

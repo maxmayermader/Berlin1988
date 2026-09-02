@@ -37,6 +37,7 @@ function lobbyState(overrides: Partial<RoomState> = {}): RoomState {
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    disconnectedSeats: [],
     ...overrides,
   };
 }

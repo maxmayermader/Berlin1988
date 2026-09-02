@@ -116,7 +116,43 @@ export interface RoomState {
    *  message lands in and how the log is trimmed. Never derived into
    *  toSnapshot(); chat travels on its own CHAT_MESSAGE/CHAT_HISTORY frames. */
   chat: { readonly LOBBY: ChatMessage[]; readonly MATCH: ChatMessage[] };
+  /** Every seat currently inside its post-disconnect grace window (D-07,
+   *  Task 2) — apps/party/src/timers.ts owns scheduleDisconnectGrace/
+   *  clearDisconnectGrace/expiredGraceSeats, the sole authority for this
+   *  array's contents. Purely additive to the room's alarm scheduling: none
+   *  of those three functions may read or write deadlineAt/deadlineRound
+   *  (prohibition P-3-03) — a grace entry is only ever an extra candidate
+   *  in room.ts's alarmTarget() Math.min. Empty outside a live disconnect. */
+  disconnectedSeats: DisconnectedSeat[];
 }
+
+/**
+ * One seat's post-disconnect grace window, modelled field-for-field on
+ * BotSubmission below — same absolute-ms-timestamp convention
+ * (`graceExpiresAt`, never a remaining duration), so every client renders
+ * from (or, for the room, schedules from) the same server-authoritative
+ * number. `playerId` is captured at schedule time so a later expiry can
+ * still identify the seat even if something else about it changed.
+ */
+export interface DisconnectedSeat {
+  readonly seatIndex: number;
+  readonly playerId: string;
+  readonly graceExpiresAt: number;
+}
+
+/**
+ * 20 seconds — long enough to survive a page refresh plus a WebSocket
+ * reconnect and a brief network blip, short enough that a match does not
+ * visibly stall waiting on someone who isn't coming back. No source
+ * artifact specifies a value (D-07 explicitly leaves it to the planner),
+ * chosen in the same spirit as COUNTDOWN_DURATION_MS above. Per
+ * 03-RESEARCH.md Pitfall 3 / Assumption A1, this is a LOWER BOUND on the
+ * total reclaim window, not an exact one — onClose on an abrupt network
+ * drop (a pulled cable, a crashed tab) fires on a platform-level timeout
+ * this project does not control, so the real window a player has to
+ * reconnect before AI takes over can run longer than 20s in practice.
+ */
+export const DISCONNECT_GRACE_MS = 20_000;
 
 /** One bot seat's already-decided order for the current round, queued for
  *  release once its padded think-time elapses (T-1-14 — a bot seat is not
@@ -336,6 +372,7 @@ export function recomputeCountdown(state: RoomState, now: number, durationMs: nu
  *  into `disconnected` — the only two personality/connection-derived values
  *  that ever cross the wire (LOBBY-06, LOBBY-07). */
 export function toSnapshot(state: RoomState): LobbySnapshot {
+  const disconnectedIndices = new Set(state.disconnectedSeats.map((d) => d.seatIndex));
   return {
     code: state.code,
     phase: state.phase,
@@ -349,10 +386,7 @@ export function toSnapshot(state: RoomState): LobbySnapshot {
       kind: seat.kind,
       ready: seat.ready,
       aiReadout: aiReadoutFor(seat),
-      // Populated for real in Task 2 from state.disconnectedSeats; hardcoded
-      // false here so this schema change and toSnapshot's own change land in
-      // the same task rather than drifting (03-RESEARCH.md Pitfall 6).
-      disconnected: false,
+      disconnected: disconnectedIndices.has(seat.index),
     })),
   };
 }
