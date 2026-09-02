@@ -61,6 +61,12 @@ export default function LobbyPage() {
     if (message.type === 'ERROR') {
       setKickError("Couldn't remove that player — they may have already left.");
     }
+    // Mirrors the existing IN_GAME redirect below — driven from a server
+    // frame rather than a locally guessed condition. socket.ts already
+    // called markKicked() before this callback runs.
+    if (message.type === 'KICKED') {
+      router.push('/');
+    }
   });
 
   useEffect(() => {

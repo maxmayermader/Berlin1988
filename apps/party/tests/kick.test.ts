@@ -186,4 +186,24 @@ describe('apps/party integration: KICK over a real room', () => {
       'You were removed from the lobby by the host.',
     );
   });
+
+  it('a kicked seat accepts a fresh JOIN for the same code from a new connection — no ban list exists (D-06)', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+    const code = room.roomState()!.code;
+    const guest = room.connect('Katja');
+    await guest.send({ type: 'JOIN', code, codename: 'Katja' });
+
+    const guestIndex = room.roomState()!.seats.find((s) => s.codename === 'Katja')!.index;
+    await host.send({ type: 'KICK', seatIndex: guestIndex });
+    expect(room.roomState()!.seats.find((s) => s.index === guestIndex)!.kind).toBe('OPEN');
+
+    const rejoined = room.connect('Katja Returns');
+    await rejoined.send({ type: 'JOIN', code, codename: 'Katja Returns' });
+
+    const joined = rejoined.received.find((m) => m.type === 'JOINED');
+    expect(joined).toBeDefined();
+    expect(room.roomState()!.seats.find((s) => s.index === guestIndex)!.kind).toBe('HUMAN');
+  });
 });

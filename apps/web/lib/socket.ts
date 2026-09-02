@@ -4,6 +4,7 @@ import { cardId, clientMessageSchema, serverMessageSchema } from '@berlin/shared
 import type { Action, CardId, ClientMessage, ServerMessage } from '@berlin/shared';
 import { PartySocket } from 'partysocket';
 import { usePartySocket } from 'partysocket/react';
+import { markKicked } from './kicked.js';
 import { useLoadoutStore } from './loadoutStore.js';
 import { useMatchStore } from './matchStore.js';
 import { useUiStore } from './uiStore.js';
@@ -163,6 +164,11 @@ export function useRoomSocket(
         useLoadoutStore.getState().recordAccepted(message.cards.map(cardId));
       } else if (message.type === 'LOADOUT_REJECTED') {
         useLoadoutStore.getState().setSaveStatus({ state: 'rejected', message: message.message });
+      } else if (message.type === 'KICKED') {
+        // Marks the one-shot flag only — routing is a route's job, not
+        // socket.ts's (apps/web/lib/CLAUDE.md rule 1). The lobby route's own
+        // onMessage callback below does the actual router.push('/').
+        markKicked();
       }
 
       onMessage(message);
