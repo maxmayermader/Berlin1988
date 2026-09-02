@@ -1,8 +1,16 @@
 'use client';
 
-import { CHAT_TEXT_MAX } from '@berlin/shared';
+import { CHAT_TEXT_MAX, FLAVOR_PROMPTS } from '@berlin/shared';
 import type { ChatMessage } from '@berlin/shared';
 import { useState } from 'react';
+import {
+  canSend,
+  chatRows,
+  EMPTY_COPY,
+  PLACEHOLDER_COPY,
+  PROMPTS_LABEL,
+  SEND_LABEL,
+} from '../../lib/chatRows.js';
 import { Button } from '../ui/Button.js';
 
 /**
@@ -15,45 +23,28 @@ import { Button } from '../ui/Button.js';
  */
 
 const TITLE = 'Table Talk';
-const PLACEHOLDER = 'Say something…';
-const SEND_LABEL = 'Send Message';
-const EMPTY_COPY = 'No messages yet. Say hello, or pick a line below.';
 
 export interface ChatPanelProps {
   messages: readonly ChatMessage[];
   onSend: (text: string) => void;
+  onSendPrompt: (promptId: number) => void;
   pending?: boolean;
   error?: string | null;
 }
 
-export function ChatPanel({ messages, onSend, pending = false, error = null }: ChatPanelProps) {
-  const [draft, setDraft] = useState('');
-  const canSend = draft.trim().length > 0;
-
-  function handleSend() {
-    if (!canSend) return;
-    onSend(draft.trim());
-    setDraft('');
-  }
-
+export function ChatPanel({
+  messages,
+  onSend,
+  onSendPrompt,
+  pending = false,
+  error = null,
+}: ChatPanelProps) {
   return (
     <section className="flex flex-col gap-4 rounded border border-[#e2e8f0] bg-[#ffffff] p-6">
       <h2 className="text-[20px] font-semibold leading-[1.2]">{TITLE}</h2>
       <ChatBody messages={messages} />
       {error && <p className="text-sm text-[#dc2626]">{error}</p>}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={PLACEHOLDER}
-          maxLength={CHAT_TEXT_MAX}
-          className="flex-1 rounded border border-[#e2e8f0] px-3 py-2 text-base focus:border-[#2563eb]"
-        />
-        <Button onClick={handleSend} pending={pending} disabled={!canSend}>
-          {SEND_LABEL}
-        </Button>
-      </div>
+      <ChatComposer onSend={onSend} onSendPrompt={onSendPrompt} pending={pending} />
     </section>
   );
 }
@@ -61,20 +52,91 @@ export function ChatPanel({ messages, onSend, pending = false, error = null }: C
 /**
  * The message list — extracted so MatchChat.tsx can render the identical
  * scrolling body inside its own fixed-height drawer chrome, without a second
- * copy of the message-row markup (03-03-PLAN.md Task 2).
+ * copy of the message-row markup (03-03-PLAN.md Task 2). Renders
+ * chatRows(messages) rather than mapping raw messages — the pure view model
+ * owns row shape, this component decides nothing.
  */
 export function ChatBody({ messages }: { messages: readonly ChatMessage[] }) {
+  const rows = chatRows(messages);
   return (
     <div className="flex h-48 flex-col gap-2 overflow-y-auto rounded border border-[#e2e8f0] bg-[#f1f5f9] p-4">
-      {messages.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-sm text-[#64748b]">{EMPTY_COPY}</p>
       ) : (
-        messages.map((message) => (
-          <div key={message.id}>
-            <p className="text-sm font-semibold">{message.codename}</p>
-            <p className="text-base">{message.text}</p>
+        rows.map((row) => (
+          <div key={row.key}>
+            <p className="text-sm font-semibold">{row.codename}</p>
+            <p className="text-base">{row.text}</p>
           </div>
         ))
+      )}
+    </div>
+  );
+}
+
+export interface ChatComposerProps {
+  onSend: (text: string) => void;
+  onSendPrompt: (promptId: number) => void;
+  pending?: boolean;
+}
+
+/**
+ * The input + Send button + flavor-prompt picker — extracted so MatchChat.tsx
+ * never declares its own copy of the prompt list or the composer markup
+ * (Task 3 acceptance criteria). Clicking a chip immediately sends its full
+ * predefined text and closes the picker — there is no staged or partial
+ * prompt state.
+ */
+export function ChatComposer({ onSend, onSendPrompt, pending = false }: ChatComposerProps) {
+  const [draft, setDraft] = useState('');
+  const [promptsOpen, setPromptsOpen] = useState(false);
+
+  function handleSend() {
+    if (!canSend(draft)) return;
+    onSend(draft.trim());
+    setDraft('');
+  }
+
+  function handlePromptClick(index: number) {
+    onSendPrompt(index);
+    setPromptsOpen(false);
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={PLACEHOLDER_COPY}
+          maxLength={CHAT_TEXT_MAX}
+          className="flex-1 rounded border border-[#e2e8f0] px-3 py-2 text-base focus:border-[#2563eb]"
+        />
+        <Button
+          variant="ghost"
+          onClick={() => setPromptsOpen((open) => !open)}
+          aria-pressed={promptsOpen}
+        >
+          {PROMPTS_LABEL}
+        </Button>
+        <Button onClick={handleSend} pending={pending} disabled={!canSend(draft)}>
+          {SEND_LABEL}
+        </Button>
+      </div>
+      {promptsOpen && (
+        <div className="flex flex-wrap gap-2">
+          {FLAVOR_PROMPTS.map((prompt, index) => (
+            <button
+              key={prompt}
+              type="button"
+              onClick={() => handlePromptClick(index)}
+              className="rounded border border-[#2563eb] px-3 py-1 text-sm text-[#2563eb]"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

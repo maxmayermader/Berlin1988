@@ -241,3 +241,16 @@ export function sendChat(socket: PartySocket, text: string): void {
   if (!parsed.success) return;
   socket.send(JSON.stringify(parsed.data));
 }
+
+/**
+ * Sends a flavor-prompt selection. Built identically to sendChat: construct,
+ * safeParse, send only on success. The client never supplies prompt text —
+ * only the index — so the room, not this function, is what resolves it to
+ * FLAVOR_PROMPTS' reviewed line (T-03-17).
+ */
+export function sendChatPrompt(socket: PartySocket, promptId: number): void {
+  const message: ClientMessage = { type: 'CHAT_SEND', promptId };
+  const parsed = clientMessageSchema.safeParse(message);
+  if (!parsed.success) return;
+  socket.send(JSON.stringify(parsed.data));
+}

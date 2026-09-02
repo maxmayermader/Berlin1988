@@ -2,6 +2,7 @@ import { DEFAULT_RULESET, submitOrder, validateLoadout } from '@berlin/engine';
 import {
   agentId as toAgentId,
   playerId as toPlayerId,
+  promptText,
   type AgentOrder,
   type ChatMessage,
   type ChatScope,
@@ -526,15 +527,23 @@ export interface ChatSendResult {
  * text (apps/party/CLAUDE.md rule 2 still applies: the acting seat comes
  * from seatFor(connectionId), never from the message body — the CHAT_SEND
  * schema has no identity field to read in the first place, per D-11).
- * Trims the incoming text and rejects an empty result with CHAT_REJECTED —
- * the client's own canSend() gate is UX only; this is the enforcement,
- * mirroring how handleSubmitLoadout re-validates behind the deckbuilder's
- * own gate. `built.codename` is always `seat.codename` — nothing about the
- * message's attribution is ever read from `message`. The message's scope is
- * derived from chatScopeFor(state.phase), never hardcoded — this is what
- * makes D-10's lobby/match separation a property of the phase machine, and
+ * `built.codename` is always `seat.codename` — nothing about the message's
+ * attribution is ever read from `message`. The message's scope is derived
+ * from chatScopeFor(state.phase), never hardcoded — this is what makes
+ * D-10's lobby/match separation a property of the phase machine, and
  * appendChat is what makes the resulting state carry the message in its own
  * bounded, phase-scoped log.
+ *
+ * Resolves the message's text before anything else: a `promptId` is looked
+ * up via promptText() and rejected with CHAT_REJECTED when it's out of
+ * range (T-03-17 — the client only ever selects a reviewed line, never
+ * supplies prompt text itself); a `text` is trimmed and rejected when the
+ * trimmed result is empty (the client's own canSend() gate is UX only; this
+ * is the enforcement, mirroring how handleSubmitLoadout re-validates behind
+ * the deckbuilder's own gate). From that point the two paths converge into
+ * one ChatMessage with one field set — nothing on the built message marks
+ * which kind it was (D-12's "one log" framing; 03-UI-SPEC.md's no-visual-
+ * distinction rule).
  */
 export function handleChatSend(
   state: RoomState | null,
@@ -550,13 +559,26 @@ export function handleChatSend(
     return { state, toSender: null, broadcast: null };
   }
 
-  const text = message.text.trim();
-  if (text.length === 0) {
-    return {
-      state,
-      toSender: { type: 'CHAT_REJECTED', message: 'Message not sent — try again.' },
-      broadcast: null,
-    };
+  const rejected: ChatSendResult = {
+    state,
+    toSender: { type: 'CHAT_REJECTED', message: 'Message not sent — try again.' },
+    broadcast: null,
+  };
+
+  let text: string;
+  if (message.promptId !== undefined) {
+    const resolved = promptText(message.promptId);
+    if (resolved === null) return rejected;
+    text = resolved;
+  } else if (message.text !== undefined) {
+    const trimmed = message.text.trim();
+    if (trimmed.length === 0) return rejected;
+    text = trimmed;
+  } else {
+    // Unreachable given clientMessageSchema's superRefine (exactly one of
+    // text/promptId is always present) — kept as a defensive rejection
+    // rather than a throw, matching this handler's other rejection paths.
+    return rejected;
   }
 
   const built: ChatMessage = {

@@ -5,6 +5,8 @@ import {
   chatMessageSchema,
   clientMessageSchema,
   CHAT_TEXT_MAX,
+  FLAVOR_PROMPTS,
+  promptText,
   type ChatMessage,
   type ServerMessage,
 } from '@berlin/shared';
@@ -331,5 +333,107 @@ describe('apps/party integration: chat follows the game (D-10)', () => {
     expect(history).toBeDefined();
     expect(history!.scope).toBe('MATCH');
     expect(history!.messages).toHaveLength(room.roomState()!.chat.MATCH.length);
+  });
+});
+
+describe('packages/shared/src/prompts.ts FLAVOR_PROMPTS / promptText (pure)', () => {
+  it('has between 8 and 10 entries, every entry non-empty', () => {
+    expect(FLAVOR_PROMPTS.length).toBeGreaterThanOrEqual(8);
+    expect(FLAVOR_PROMPTS.length).toBeLessThanOrEqual(10);
+    expect(FLAVOR_PROMPTS.every((s) => s.trim().length > 0)).toBe(true);
+  });
+
+  it('promptText(id) returns the entry at that index for a valid index, and null for negative, fractional, or out-of-range', () => {
+    expect(promptText(0)).toBe(FLAVOR_PROMPTS[0]);
+    expect(promptText(FLAVOR_PROMPTS.length - 1)).toBe(FLAVOR_PROMPTS[FLAVOR_PROMPTS.length - 1]);
+    expect(promptText(-1)).toBeNull();
+    expect(promptText(1.5)).toBeNull();
+    expect(promptText(FLAVOR_PROMPTS.length)).toBeNull();
+  });
+});
+
+describe('packages/shared/src/protocol.ts CHAT_SEND text/promptId exclusivity (pure)', () => {
+  it('a CHAT_SEND carrying both text and promptId fails parsing', () => {
+    expect(
+      clientMessageSchema.safeParse({ type: 'CHAT_SEND', text: 'hi', promptId: 0 }).success,
+    ).toBe(false);
+  });
+
+  it('a CHAT_SEND carrying neither text nor promptId fails parsing', () => {
+    expect(clientMessageSchema.safeParse({ type: 'CHAT_SEND' }).success).toBe(false);
+  });
+
+  it('a CHAT_SEND carrying only a valid promptId parses successfully', () => {
+    expect(clientMessageSchema.safeParse({ type: 'CHAT_SEND', promptId: 0 }).success).toBe(true);
+  });
+
+  it('a CHAT_SEND carrying an out-of-range promptId fails schema-level bounds', () => {
+    expect(
+      clientMessageSchema.safeParse({ type: 'CHAT_SEND', promptId: FLAVOR_PROMPTS.length }).success,
+    ).toBe(false);
+  });
+});
+
+describe('apps/party/src/handlers.ts handleChatSend prompt path (pure + integration)', () => {
+  it('a promptId resolves to FLAVOR_PROMPTS[promptId] text on the built ChatMessage', () => {
+    const state = fixtureState([0]);
+    const result = handleChatSend(
+      state,
+      { type: 'CHAT_SEND', promptId: 2 },
+      'conn0',
+      Date.now(),
+      fakeRng(),
+    );
+    expect(result.broadcast?.text).toBe(FLAVOR_PROMPTS[2]);
+  });
+
+  it('an out-of-range promptId (validated at the schema layer, but re-checked here defensively) is rejected with CHAT_REJECTED and no broadcast', () => {
+    const state = fixtureState([0]);
+    // A raw call bypassing the wire schema's own bound, exercising the
+    // handler's own promptText() null-check directly.
+    const result = handleChatSend(
+      state,
+      { type: 'CHAT_SEND', promptId: 9999 },
+      'conn0',
+      Date.now(),
+      fakeRng(),
+    );
+    expect(result.toSender?.type).toBe('CHAT_REJECTED');
+    expect(result.broadcast).toBeNull();
+  });
+
+  it('a prompt-sourced ChatMessage and a free-text ChatMessage have the same field set', () => {
+    const state = fixtureState([0]);
+    const fromPrompt = handleChatSend(
+      state,
+      { type: 'CHAT_SEND', promptId: 0 },
+      'conn0',
+      Date.now(),
+      fakeRng(),
+    );
+    const fromText = handleChatSend(
+      state,
+      { type: 'CHAT_SEND', text: 'hello' },
+      'conn0',
+      Date.now(),
+      fakeRng(),
+    );
+    expect(Object.keys(fromPrompt.broadcast!).sort()).toEqual(
+      Object.keys(fromText.broadcast!).sort(),
+    );
+  });
+
+  it('a CHAT_SEND carrying a valid promptId and no text produces a broadcast over a real room whose text equals FLAVOR_PROMPTS[0]', async () => {
+    const room = createTestRoom();
+    const host = room.connect('Vogel');
+    await host.send({ type: 'CREATE', codename: 'Vogel' });
+
+    await host.send({ type: 'CHAT_SEND', promptId: 0 });
+
+    const received = host.received.find((m) => m.type === 'CHAT_MESSAGE') as
+      | Extract<ServerMessage, { type: 'CHAT_MESSAGE' }>
+      | undefined;
+    expect(received).toBeDefined();
+    expect(received!.message.text).toBe(FLAVOR_PROMPTS[0]);
   });
 });

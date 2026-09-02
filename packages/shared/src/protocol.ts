@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { PlayerView } from './view.js';
 import type { Action } from './orders.js';
 import { cardId, nodeId } from './ids.js';
+import { FLAVOR_PROMPTS } from './prompts.js';
 
 /**
  * The wire contract between apps/web and apps/party. Zod schemas are the
@@ -150,9 +151,27 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     // stripped (T-03-13). Carries no codename, playerId, seatIndex, or
     // agentId field — the sender's codename is always resolved server-side
     // from seatFor(connectionId).codename, per D-11.
-    text: z.string().min(1).max(CHAT_TEXT_MAX),
+    //
+    // Exactly one of `text`/`promptId` is present — enforced by the
+    // superRefine below, not by two separate discriminatedUnion members
+    // (a second `{ type: 'CHAT_SEND', ... }` member cannot coexist in a
+    // union keyed on `type`). `promptId` is a bounded integer index into
+    // FLAVOR_PROMPTS, never prompt text itself — the client can only ever
+    // select a reviewed line, never author one through this path (T-03-17).
+    text: z.string().min(1).max(CHAT_TEXT_MAX).optional(),
+    promptId: z.number().int().min(0).max(FLAVOR_PROMPTS.length - 1).optional(),
   }),
-]);
+]).superRefine((data, ctx) => {
+  if (data.type !== 'CHAT_SEND') return;
+  const hasText = data.text !== undefined;
+  const hasPrompt = data.promptId !== undefined;
+  if (hasText === hasPrompt) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Provide exactly one of text or promptId.',
+    });
+  }
+});
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
 // CHAT_SEND deliberately carries no codename/playerId/seatIndex/agentId

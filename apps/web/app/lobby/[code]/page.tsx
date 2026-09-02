@@ -15,7 +15,7 @@ import { Button } from '../../../components/ui/Button.js';
 import { useChatStore } from '../../../lib/chatStore.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { loadoutsDiverge, useLoadoutStore } from '../../../lib/loadoutStore.js';
-import { sendChat, submitLoadout, useRoomSocket } from '../../../lib/socket.js';
+import { sendChat, sendChatPrompt, submitLoadout, useRoomSocket } from '../../../lib/socket.js';
 
 export default function LobbyPage() {
   const params = useParams<{ code: string }>();
@@ -177,6 +177,10 @@ export default function LobbyPage() {
     sendChat(socket, text);
   }
 
+  function handleSendChatPrompt(promptId: number) {
+    sendChatPrompt(socket, promptId);
+  }
+
   const showDivergenceNotice = !editingLoadout && loadoutsDiverge(loadout, lastAcceptedCards);
 
   return (
@@ -236,7 +240,12 @@ export default function LobbyPage() {
             </p>
           )}
           <ReadyCountdown snapshot={snapshot} />
-          <ChatPanel messages={lobbyChat} onSend={handleSendChat} error={chatError} />
+          <ChatPanel
+            messages={lobbyChat}
+            onSend={handleSendChat}
+            onSendPrompt={handleSendChatPrompt}
+            error={chatError}
+          />
         </>
       )}
     </main>

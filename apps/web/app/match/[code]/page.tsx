@@ -22,7 +22,7 @@ import {
   emptyDraft,
   toAgentOrder,
 } from '../../../lib/orderDraft.js';
-import { sendChat, submitOrder, useRoomSocket } from '../../../lib/socket.js';
+import { sendChat, sendChatPrompt, submitOrder, useRoomSocket } from '../../../lib/socket.js';
 import { useUiStore } from '../../../lib/uiStore.js';
 
 /** 01-UI-SPEC.md's exact copy for a dropped mid-match connection — an
@@ -123,6 +123,10 @@ export default function MatchPage() {
     sendChat(socket, text);
   }
 
+  function handleSendChatPrompt(promptId: number) {
+    sendChatPrompt(socket, promptId);
+  }
+
   if (connectionStatus === 'lost') {
     return (
       <main className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-16">
@@ -203,7 +207,12 @@ export default function MatchPage() {
           </div>
         )}
       </div>
-      <MatchChat messages={matchChat} onSend={handleSendChat} error={chatError} />
+      <MatchChat
+        messages={matchChat}
+        onSend={handleSendChat}
+        onSendPrompt={handleSendChatPrompt}
+        error={chatError}
+      />
     </main>
   );
 }
