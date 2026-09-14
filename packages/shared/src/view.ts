@@ -133,6 +133,14 @@ export interface PlayerView {
   readonly burnTracks: Readonly<Record<string, readonly BurnEntry[]>>;
   /** Last round's events, already filtered to this player's entitlement. */
   readonly lastRound: readonly ResolutionEvent[];
+  /**
+   * This player's whole match history, each round already filtered to this
+   * player's entitlement. A flat array, deliberately not a Record keyed by
+   * player id like `burnTracks` — history is not symmetric-public, so
+   * PlayerView must have no field capable of holding another player's
+   * filtered log.
+   */
+  readonly history: readonly (readonly ResolutionEvent[])[];
 
   readonly clock: ClockState;
   readonly outcome: MatchOutcome | null;

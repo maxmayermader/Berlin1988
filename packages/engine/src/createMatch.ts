@@ -90,6 +90,9 @@ export function createMatch(settings: MatchSettings, seed: string): GameState {
   const burnTracks: Record<string, never[]> = {};
   for (const id of playerOrder) burnTracks[id as string] = [];
 
+  const history: Record<string, never[]> = {};
+  for (const id of playerOrder) history[id as string] = [];
+
   return {
     matchId: toMatchId(seed),
     settings,
@@ -108,6 +111,7 @@ export function createMatch(settings: MatchSettings, seed: string): GameState {
     burnTracks,
     dossierRespawns: [],
     lastRoundLog: [],
+    history,
     signals: Object.fromEntries(playerOrder.map((id) => [id as string, []])),
     outcome: null,
     nextEntityId: 1,

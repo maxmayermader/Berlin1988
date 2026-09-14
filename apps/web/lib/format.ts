@@ -34,6 +34,73 @@ const CONTEST_METHOD_TEXT: Record<string, string> = {
 };
 
 /**
+ * The round number a stored (or live) log belongs to — read from the log's
+ * own `ROUND_START` event rather than trusting a caller-supplied index.
+ * `ROUND_START` is in the always-public branch of
+ * `packages/engine/src/fog/filterEvents.ts`, so it survives fog reduction
+ * for every viewer and every stored history entry; `fallback` only matters
+ * for a malformed or empty log, never the normal path. Mirrors the
+ * round-derivation `apps/web/app/match/[code]/page.tsx` already performs for
+ * the live step-through, so that logic stops being duplicated.
+ */
+export function roundNumberOf(log: readonly ResolutionEvent[], fallback: number): number {
+  const first = log[0];
+  return first?.type === 'ROUND_START' ? first.round : fallback;
+}
+
+/**
+ * A round-history row's headline — a bounded template (counts plus fixed
+ * nouns, capped at two clauses) rather than free event prose, which is what
+ * lets the long-text overflow row in 04-UI-SPEC.md's UI Considerations table
+ * need no truncation rule. Follows `eventText()`'s existing count-and-
+ * pluralize idiom (its `WIRETAP_RESULT` branch) instead of inventing a new
+ * one.
+ *
+ * Source reconciliation (recorded here so the next reader doesn't
+ * re-litigate it): 04-UI-SPEC.md's Copywriting Contract says "dossiers
+ * extracted," while 04-PATTERNS.md's sketch suggested counting the
+ * pickup event instead. Those are different game facts — the pickup event
+ * fires when an agent lifts a dossier off a node; `EXTRACTION` fires when
+ * that agent reaches an extraction point and banks it, which is the
+ * scoring event and the one the copy describes. `EXTRACTION` wins; the
+ * pickup event type is deliberately not counted here.
+ */
+export function roundHeadline(log: readonly ResolutionEvent[]): string {
+  let extractions = 0;
+  let burns = 0;
+  let contests = 0;
+  for (const event of log) {
+    switch (event.type) {
+      case 'EXTRACTION':
+        extractions++;
+        break;
+      case 'AGENT_BURNED':
+        burns++;
+        break;
+      case 'CONTEST':
+        contests++;
+        break;
+      default:
+        break;
+    }
+  }
+
+  const clauses: string[] = [];
+  if (extractions > 0) {
+    clauses.push(`${extractions} dossier${extractions === 1 ? '' : 's'} extracted`);
+  }
+  if (burns > 0) {
+    clauses.push(`${burns} agent${burns === 1 ? '' : 's'} burned`);
+  }
+  if (contests > 0) {
+    clauses.push(`${contests} contested node${contests === 1 ? '' : 's'}`);
+  }
+
+  if (clauses.length === 0) return 'quiet round';
+  return clauses.slice(0, 2).join('; ');
+}
+
+/**
  * The single source of prose for a resolution event — the same string feeds
  * the visible row and its accessible announcement, so the two cannot drift
  * (apps/web/lib/CLAUDE.md rule 5). A case per `ResolutionEvent` member, no

@@ -119,6 +119,14 @@ export interface GameState {
    */
   lastRoundLog: ResolutionEvent[];
   /**
+   * Per-player, already-fog-filtered, append-only round log. Each inner array
+   * is one round's events already reduced to that player's entitlement,
+   * computed at the instant that round resolved — it is never re-reduced
+   * against a later state. See resolveRound()'s history-append line and
+   * projectView()'s direct-copy for the two halves of this invariant.
+   */
+  history: Record<string, ResolutionEvent[][]>;
+  /**
    * Per-player signals for the current round, generated at Upkeep so that
    * projectView stays a pure read and consumes no randomness.
    */

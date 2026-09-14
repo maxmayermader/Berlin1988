@@ -2,43 +2,52 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 4
-current_phase_name: Deduction Surfaces & Presentation Polish
-status: planning
-stopped_at: Completed 03-04-PLAN.md — Phase 3 complete
-last_updated: "2026-09-02T18:48:02.257Z"
-last_activity: 2026-09-02
-last_activity_desc: Phase 03 complete, transitioned to Phase 4
+status: Awaiting next milestone
+stopped_at: Phase 4 UI-SPEC approved
+last_updated: "2026-09-14T21:47:59.284Z"
+last_activity: 2026-09-14
+last_activity_desc: Milestone v1.0 completed and archived
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 14
-  completed_plans: 14
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 18
+  completed_plans: 18
+current_phase: 1
+current_phase_name: Playable Skeleton
 ---
 
 # Project State
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone close on 2026-09-14:
+
+| Category | Item | Status |
+|----------|------|--------|
+| uat_gap | Phase 01 — 01-UAT.md | testing (2 pending scenarios) |
+| uat_gap | Phase 02 — 02-UAT.md | testing (1 pending scenario) |
+| verification_gap | Phase 01 — 01-VERIFICATION.md | human_needed |
+| verification_gap | Phase 02 — 02-VERIFICATION.md | human_needed |
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-08-18)
 
 **Core value:** A group of players (any mix of humans and AI) can go from the home page through a lobby into a complete, playable 14-round match and see a result — with no gaps in the underlying rules engine.
-**Current focus:** Phase 03 — open-lobbies-host-control-table-talk
+**Current focus:** Phase 04 — deduction-surfaces-presentation-polish
 
 ## Current Position
 
-Phase: 4 — Deduction Surfaces & Presentation Polish
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-09-02 — Phase 03 complete, transitioned to Phase 4
-
-Progress: [██████████] 100%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-14 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 4
+- Total plans completed: 8
 - Average duration: —
 - Total execution time: —
 
@@ -47,6 +56,7 @@ Progress: [██████████] 100%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 03 | 4 | - | - |
+| 04 | 4 | - | - |
 
 **Recent Trend:**
 
@@ -153,6 +163,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-02T18:38:11.305Z
-Stopped at: Completed 03-04-PLAN.md — Phase 3 complete
-Resume file: None
+Last session: 2026-09-02T23:21:40.953Z
+Stopped at: Phase 4 UI-SPEC approved
+Resume file: .planning/phases/04-deduction-surfaces-presentation-polish/04-UI-SPEC.md
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

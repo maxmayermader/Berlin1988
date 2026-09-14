@@ -98,6 +98,13 @@ export function projectView(state: GameState, viewer: PlayerId): PlayerView {
     burnTracks[id as string] = (state.burnTracks[id as string] ?? []).map((e) => ({ ...e }));
   }
 
+  // Direct copy, no reduction call — the fog filter already ran once inside
+  // resolveRound(). Re-reducing a past round against the current state would
+  // reintroduce Pitfall 1 (strike-audibility mis-grade).
+  const history = (state.history[viewer as string] ?? []).map((round) =>
+    round.map((e) => ({ ...e })),
+  );
+
   return {
     matchId: state.matchId as string,
     round: state.round,
@@ -113,6 +120,7 @@ export function projectView(state: GameState, viewer: PlayerId): PlayerView {
     signals: (state.signals[viewer as string] ?? []).map((s) => ({ ...s })),
     burnTracks,
     lastRound: filterEvents(state, state.lastRoundLog, viewer),
+    history,
     clock: {
       deadlineAt: null, // owned by the room, not the engine
       paused: false,

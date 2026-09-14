@@ -31,13 +31,14 @@ A group of players (any mix of humans and AI) can go from the home page through 
 - ✓ A kicked or disconnected player's seat is filled by AI without voiding the match, with a reversible mid-match human/AI handoff — Phase 3
 - ✓ Every AI-controlled seat displays the bot's name and personality, not a bare difficulty label — Phase 3
 - ✓ In-lobby and in-match chat, free text plus predefined flavor-text prompts — Phase 3
+- ✓ Round history/log of past resolutions — v1.0, Phase 4
+- ✓ Burn Track panel showing exactly what public information opponents have learned about a player — v1.0, Phase 4
+- ✓ General UI transitions and micro-interactions applied consistently, respecting reduced-motion preferences — v1.0, Phase 4
 
 ### Active
 
-- [ ] Round history/log of past resolutions
-- [ ] Burn Track panel showing exactly what public information opponents have learned about a player
-- [ ] General UI transitions and micro-interactions applied consistently, respecting reduced-motion preferences
-- [ ] Deployed web app on Vercel (`apps/web`); match-hosting server (`apps/party`, PartyKit) on a to-be-decided host
+- [ ] Deploy `apps/web` to Vercel and link it to the already-live `apps/party` Cloudflare deployment — the one item that kept Phase 1's phase-gate checkpoint (Durable Object hibernation under a real client, four-player human-plausibility read) from ever actually running; still blocking, carried across Phases 1-4 unresolved
+- [ ] Close the Phase 1/2 human-verification gaps acknowledged at v1.0 close (see Context) — 2 pending Phase 1 UAT scenarios, 1 pending Phase 2 UAT scenario, both VERIFICATION.md reports left at `human_needed`
 
 ### Out of Scope
 
@@ -48,8 +49,9 @@ A group of players (any mix of humans and AI) can go from the home page through 
 
 ## Context
 
-- Phase 3 (Open Lobbies, Host Control & Table Talk) complete as of 2026-09-02: public lobby browser, host seat-count/kick control, mid-match disconnect/AI-takeover/reclaim, and lobby+match chat. 487 tests green across the monorepo. Only round history/Burn Track/motion-polish (Phase 4) and the Vercel/PartyKit deployment remain before v1 is feature-complete.
-- Brownfield project: `packages/shared`, `packages/engine`, and `packages/ai` are implemented and tested. `apps/` was a skeleton at project start; Phases 1–3 have built it out substantially.
+- **v1.0 shipped 2026-09-14** — all 4 phases complete, 28/28 requirements checked off, 580 tests green across the monorepo, 18 plans across 30 commits over 23 days. Full accomplishment list in `.planning/MILESTONES.md`.
+- **Known gaps at v1.0 close (acknowledged, not blocking):** Phase 1 and Phase 2 each have unresolved human-verification items — 2 pending Phase 1 UAT scenarios (one is Task 3's Vercel-deployment-dependent phase gate from 01-06, still open), 1 pending Phase 2 UAT scenario, and both phases' VERIFICATION.md left at `human_needed` rather than `passed`. Recorded in STATE.md's Deferred Items. `apps/party` is deployed and verified live on Cloudflare; `apps/web` has never been deployed to Vercel in this environment, which is the root cause of most of these gaps (no live URL to test against).
+- Brownfield project: `packages/shared`, `packages/engine`, and `packages/ai` are implemented and tested. `apps/` was a skeleton at project start; Phases 1–4 have built it out fully — round history, Burn Track deduction surfaces, and an app-wide reduced-motion-respecting motion system landed in Phase 4.
 - Full codebase map available at `.planning/codebase/` (STACK.md, ARCHITECTURE.md, STRUCTURE.md, CONVENTIONS.md, TESTING.md, INTEGRATIONS.md, CONCERNS.md).
 - Game design fully specified in `docs/GAME_DESIGN.md`; architecture and engine contract in `docs/ARCHITECTURE.md`; AI opponent behavior in `docs/AI_OPPONENTS.md`.
 - Motivation: the maintainer enjoys the mobile game "Two Spies" and wants their own version playable with more people (up to 4) and with AI filling empty seats.
@@ -74,7 +76,10 @@ A group of players (any mix of humans and AI) can go from the home page through 
 | Ready-to-start threshold is ≥50% of filled seats ready, not unanimous | User explicitly wants a faster start than waiting on every seat | Shipped, Phase 1 |
 | A kicked/disconnected seat's AI takeover is reversible — a reconnecting human can reclaim it mid-match | User wanted a forgiving reconnect window rather than a permanent bot handoff | Shipped, Phase 3 — required a `controlledBy` field distinct from seat origin and a purge of stale bot orders on reclaim (verified overwrite-race regression test) |
 | Kicked players are never banned — they can rejoin immediately with the join code | Simplicity; no accounts means no durable identity to ban | Shipped, Phase 3 |
-| PartyKit hosting location deferred | Not yet decided; will be researched when relevant | Pending |
+| PartyKit hosting location deferred | Not yet decided; will be researched when relevant | Shipped, Phase 1 — Cloudflare Durable Objects, verified live |
+| Round history is a server-side full match log, filtered exactly once at round-resolution time (never re-filtered later against a newer GameState) | Research found the naive read-time-refilter implementation is a genuine fog-of-war leak: `filterEvents()`'s STRIKE_FIRED grading reads the viewer's *current* agent positions | Shipped, Phase 4 — mirrors the existing `burnTracks` "compute once, store the answer" discipline; closed with a dedicated regression test |
+| Shared `apps/web/lib/motion.ts` utility is the app's one reduced-motion code path | D-08: every new transition/hover/flip should route through one utility so `prefers-reduced-motion` handling isn't duplicated per component | Shipped, Phase 4 — `StepThrough.tsx` refactored onto it; a cross-file test asserts no second inline branch exists |
+| `apps/web` was never deployed to Vercel during v1.0 | No blocking reason found in any phase's session — appears to be an environment/tooling gap (no `vercel` CLI / linked project available to the executing agent), not a product decision | Open — carried into Active requirements for v1.1 |
 
 ## Evolution
 
@@ -94,4 +99,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-02 after Phase 3 completion*
+*Last updated: 2026-09-14 after v1.0 milestone*

@@ -1,5 +1,6 @@
 import type { GameState, ResolutionEvent } from '@berlin/shared';
 import { emit, grant, makeContext, type RoundContext } from './ctx.js';
+import { filterEvents } from '../fog/filterEvents.js';
 import { stepArm } from './arm.js';
 import { stepTraps } from './traps.js';
 import { stepDecoys } from './decoys.js';
@@ -60,6 +61,15 @@ export function resolveRound(state: GameState): {
   }
 
   draft.lastRoundLog = ctx.log;
+  // Filter once, HERE, against `draft` — this round's just-resolved state —
+  // and never again. The strike-audibility grader reads the viewer's current
+  // agent positions, so grading an old round against a newer state produces
+  // the wrong redaction level in both directions (RESEARCH.md Pitfall 1/2).
+  for (const pid of draft.playerOrder) {
+    const filtered = filterEvents(draft, ctx.log, pid);
+    const existing = draft.history[pid as string] ?? [];
+    draft.history[pid as string] = [...existing, filtered];
+  }
   draft.signals = generateSignals(draft, ctx.log);
   draft.pendingOrders = {};
 

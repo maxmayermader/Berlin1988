@@ -8,9 +8,11 @@ import { LockedInRow } from '../../../components/hud/LockedInRow.js';
 import { RoundClock } from '../../../components/hud/RoundClock.js';
 import { SubmittedCount } from '../../../components/hud/SubmittedCount.js';
 import { MatchChat } from '../../../components/match/MatchChat.js';
+import { MatchIntelDrawer } from '../../../components/match/MatchIntelDrawer.js';
 import { OrderComposer } from '../../../components/orders/OrderComposer.js';
 import { ResultScreen } from '../../../components/result/ResultScreen.js';
 import { StepThrough } from '../../../components/resolution/StepThrough.js';
+import { PageTransition } from '../../../components/ui/PageTransition.js';
 import { useChatStore } from '../../../lib/chatStore.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { useMatchStore } from '../../../lib/matchStore.js';
@@ -151,6 +153,7 @@ export default function MatchPage() {
     return (
       <main className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-8">
         <ResultScreen view={view} />
+        <MatchIntelDrawer view={view} />
       </main>
     );
   }
@@ -163,7 +166,7 @@ export default function MatchPage() {
   const resolvedRound = firstEvent?.type === 'ROUND_START' ? firstEvent.round : view.round;
 
   return (
-    <main className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8 md:flex-row">
+    <PageTransition className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8 md:flex-row">
       <div className="md:w-3/5">
         <h2 className="mb-2 text-[20px] font-semibold leading-[1.2]">Berlin</h2>
         <Board
@@ -213,6 +216,7 @@ export default function MatchPage() {
         onSendPrompt={handleSendChatPrompt}
         error={chatError}
       />
-    </main>
+      <MatchIntelDrawer view={view} />
+    </PageTransition>
   );
 }

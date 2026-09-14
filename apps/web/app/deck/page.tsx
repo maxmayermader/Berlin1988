@@ -3,6 +3,7 @@
 import { ALL_CARDS } from '@berlin/engine';
 import { useEffect } from 'react';
 import { Deckbuilder } from '../../components/deck/Deckbuilder.js';
+import { PageTransition } from '../../components/ui/PageTransition.js';
 import { useLoadoutStore } from '../../lib/loadoutStore.js';
 
 /**
@@ -24,7 +25,7 @@ export default function DeckPage() {
   }, [hydrate]);
 
   return (
-    <main className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-16">
+    <PageTransition className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-16">
       <h1 className="text-[28px] font-semibold leading-[1.2]">Build Loadout</h1>
       {!hydrated ? (
         <p className="text-sm">Loading…</p>
@@ -38,6 +39,6 @@ export default function DeckPage() {
           saveStatus={saveStatus}
         />
       )}
-    </main>
+    </PageTransition>
   );
 }

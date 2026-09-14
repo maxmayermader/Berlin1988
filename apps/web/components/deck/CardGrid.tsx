@@ -2,6 +2,8 @@
 
 import { isPassive } from '@berlin/engine';
 import { ICONS, type Card, type CardId, type Sector } from '@berlin/shared';
+import { motion, useReducedMotion } from 'motion/react';
+import { cardFlipVariant } from '../../lib/motion.js';
 import { Button } from '../ui/Button.js';
 
 export interface CardGridProps {
@@ -29,6 +31,9 @@ interface CardTileProps {
   card: Card;
   inLoadout: boolean;
   violating: boolean;
+  /** Read once by the parent grid and passed down — CardTile renders 34
+   *  times, so it never reads the reduced-motion preference itself. */
+  reducedMotion: boolean | null;
   onAdd: (id: CardId) => void;
   onRemove: (id: CardId) => void;
 }
@@ -36,11 +41,16 @@ interface CardTileProps {
 /** One tile: name, sector swatch + its text label, icon name, BP cost, the
  *  card's own text (never truncated), a Consumable/Permanent tag for
  *  passives, and a single Add/Remove toggle — never a stepper, since
- *  validateLoadout() has no duplicate-id rule at all. */
-function CardTile({ card, inLoadout, violating, onAdd, onRemove }: CardTileProps) {
+ *  validateLoadout() has no duplicate-id rule at all. Selecting/deselecting
+ *  flips the tile (Motion Contract item 4) — keyed on `inLoadout` so
+ *  React remounts it and the flip fires on every membership change; under
+ *  reduced motion this degrades to an instant state swap, never withheld. */
+function CardTile({ card, inLoadout, violating, reducedMotion, onAdd, onRemove }: CardTileProps) {
   return (
-    <div
+    <motion.div
+      key={inLoadout ? 'in' : 'out'}
       data-card-id={card.id}
+      {...cardFlipVariant(reducedMotion)}
       className={`flex flex-col gap-2 rounded border bg-[#f1f5f9] p-4 ${
         violating ? 'border-l-4 border-l-[#dc2626] border-y-[#e2e8f0] border-r-[#e2e8f0]' : 'border-[#e2e8f0]'
       }`}
@@ -69,7 +79,7 @@ function CardTile({ card, inLoadout, violating, onAdd, onRemove }: CardTileProps
       >
         {inLoadout ? 'Remove' : 'Add'}
       </Button>
-    </div>
+    </motion.div>
   );
 }
 
@@ -84,6 +94,9 @@ function CardTile({ card, inLoadout, violating, onAdd, onRemove }: CardTileProps
 export function CardGrid({ cards, loadout, violatingCardIds = [], onAdd, onRemove }: CardGridProps) {
   const violatingSet = new Set(violatingCardIds);
   const passives = cards.filter(isPassive);
+  // Read once for the whole grid, not once per tile (CardTile renders 34
+  // times) — passed down as a prop.
+  const reducedMotion = useReducedMotion();
 
   return (
     <div className="flex flex-col gap-8">
@@ -99,6 +112,7 @@ export function CardGrid({ cards, loadout, violatingCardIds = [], onAdd, onRemov
                   card={card}
                   inLoadout={loadout.includes(card.id)}
                   violating={violatingSet.has(card.id)}
+                  reducedMotion={reducedMotion}
                   onAdd={onAdd}
                   onRemove={onRemove}
                 />
@@ -117,6 +131,7 @@ export function CardGrid({ cards, loadout, violatingCardIds = [], onAdd, onRemov
               card={card}
               inLoadout={loadout.includes(card.id)}
               violating={violatingSet.has(card.id)}
+              reducedMotion={reducedMotion}
               onAdd={onAdd}
               onRemove={onRemove}
             />

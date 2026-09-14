@@ -123,6 +123,39 @@ describe('fog of war', () => {
     expect(views[0]!.burnTracks[state.playerOrder[0]! as string]).toBeDefined();
   });
 
+  it('the deep-scan above actually reaches PlayerView.history — it is non-empty for some viewer and carries no opponent agent id (D-01, T-04-02)', () => {
+    // The generic id-leak scan above proves history contains no opponent id,
+    // but only non-vacuously if history itself is ever non-empty across the
+    // snapshots it scans. This assertion is that proof: over the same
+    // randomized snapshots, at least one viewer's serialized history is
+    // non-empty, and across all of them no opponent agent id ever appears.
+    let sawNonEmptyHistory = false;
+    for (let s = 0; s < 25; s++) {
+      const snapshots = advance(createMatch(quickSettings(), `leak-hist-${s}`), `leak-hist-${s}`, 6);
+
+      for (const state of snapshots) {
+        for (const viewer of state.playerOrder) {
+          const view = projectView(state, viewer);
+          if (view.history.length > 0) sawNonEmptyHistory = true;
+
+          const json = JSON.stringify(view.history);
+          for (const other of state.playerOrder) {
+            if (other === viewer) continue;
+            const opp = state.players[other as string]!;
+            for (const a of opp.agents) {
+              expect(json, `agent ${a.id} leaked into ${viewer}'s history`).not.toContain(
+                a.id as string,
+              );
+            }
+          }
+        }
+      }
+    }
+    expect(sawNonEmptyHistory, 'the scan never observed a non-empty history — it would pass vacuously').toBe(
+      true,
+    );
+  });
+
   it('withholds the blockade schedule from players without Kontrolle Schedule', () => {
     const state = createMatch(quickSettings(), 'kontrolle');
     for (const viewer of state.playerOrder) {

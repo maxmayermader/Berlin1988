@@ -12,6 +12,7 @@ import { ReadyCountdown } from '../../../components/lobby/ReadyCountdown.js';
 import { SeatCountControl } from '../../../components/lobby/SeatCountControl.js';
 import { SeatList } from '../../../components/lobby/SeatList.js';
 import { Button } from '../../../components/ui/Button.js';
+import { PageTransition } from '../../../components/ui/PageTransition.js';
 import { useChatStore } from '../../../lib/chatStore.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { loadoutsDiverge, useLoadoutStore } from '../../../lib/loadoutStore.js';
@@ -184,7 +185,7 @@ export default function LobbyPage() {
   const showDivergenceNotice = !editingLoadout && loadoutsDiverge(loadout, lastAcceptedCards);
 
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-16">
+    <PageTransition className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-16">
       <h2 className="text-[20px] font-semibold leading-[1.2]">Seats</h2>
 
       {!snapshot ? (
@@ -248,6 +249,6 @@ export default function LobbyPage() {
           />
         </>
       )}
-    </main>
+    </PageTransition>
   );
 }
