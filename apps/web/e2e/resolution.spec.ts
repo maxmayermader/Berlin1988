@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { chooseAction, chooseMove, createSoloLobby, readyAndStart } from './helpers.js';
 
 /**
  * Phase 1 Success Criteria 3 and 4, client half: while composing, a player
@@ -18,11 +19,8 @@ test.describe('Resolution — HUD and step-through', () => {
   }) => {
     test.setTimeout(60_000);
 
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Create Game' }).click();
-    await page.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
-    await page.getByRole('button', { name: 'Ready Up' }).click();
-    await page.waitForURL(/\/match\/[A-Z0-9]{6}$/, { timeout: 30_000 });
+    await createSoloLobby(page);
+    await readyAndStart(page);
 
     // Composing: the counter and the clock are both visible and
     // server-derived before any submission.
@@ -32,12 +30,8 @@ test.describe('Resolution — HUD and step-through', () => {
     const firstReading = await clock.textContent();
 
     // Compose and submit — a MOVE then a Hold, same pattern as match.spec.ts.
-    const legalTarget = page.locator('[data-legal-target="move"]').first();
-    await expect(legalTarget).toBeVisible();
-    const box = await legalTarget.boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
-    await page.getByRole('button', { name: 'Hold' }).click();
+    await chooseMove(page);
+    await chooseAction(page, 'Hold');
     await page.getByRole('button', { name: 'Submit Orders' }).click();
     await expect(page.getByText('Order locked in.')).toBeVisible({ timeout: 15_000 });
 
@@ -77,14 +71,11 @@ test.describe('Resolution — HUD and step-through', () => {
     test.setTimeout(60_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Create Game' }).click();
-    await page.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
-    await page.getByRole('button', { name: 'Ready Up' }).click();
-    await page.waitForURL(/\/match\/[A-Z0-9]{6}$/, { timeout: 30_000 });
+    await createSoloLobby(page);
+    await readyAndStart(page);
 
-    await page.getByRole('button', { name: 'Hold' }).click();
-    await page.getByRole('button', { name: 'Hold' }).click();
+    await chooseAction(page, 'Hold');
+    await chooseAction(page, 'Hold');
     await page.getByRole('button', { name: 'Submit Orders' }).click();
     await expect(page.getByText('Order locked in.')).toBeVisible({ timeout: 15_000 });
 
@@ -123,6 +114,12 @@ test.describe('Resolution — HUD and step-through', () => {
     await pageA.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
     const code = pageA.url().split('/lobby/')[1] ?? '';
 
+    // One agent each: this test asserts the submitted count rises by exactly
+    // one when A submits, and a seat only counts as submitted once every one
+    // of its agents has committed. At the new 2-agent default, A's single
+    // order would leave the seat outstanding and the count unchanged.
+    await pageA.getByRole('button', { name: '1 agent', exact: true }).click();
+
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
     await pageB.goto('/');
@@ -151,8 +148,8 @@ test.describe('Resolution — HUD and step-through', () => {
     // not appear, and B's count must rise by exactly one once the server
     // acknowledges A's order (T-1-25: the count never rises on a local
     // click, only on a server frame).
-    await pageA.getByRole('button', { name: 'Hold' }).click();
-    await pageA.getByRole('button', { name: 'Hold' }).click();
+    await chooseAction(pageA, 'Hold');
+    await chooseAction(pageA, 'Hold');
     await pageA.getByRole('button', { name: 'Submit Orders' }).click();
     await expect(pageA.getByText('Order locked in.')).toBeVisible({ timeout: 15_000 });
 

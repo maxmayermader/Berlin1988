@@ -16,11 +16,15 @@ import { PageTransition } from '../../../components/ui/PageTransition.js';
 import { useChatStore } from '../../../lib/chatStore.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { useMatchStore } from '../../../lib/matchStore.js';
+import { intelAvailableFor, viewForComposing } from '@berlin/engine';
 import {
-  actionForNodeClick,
+  actionForTarget,
+  actionOptions,
+  type ActionOption,
+} from '../../../lib/actionMenu.js';
+import {
   assignAction,
   clearSlot,
-  composerTargets,
   emptyDraft,
   toAgentOrder,
 } from '../../../lib/orderDraft.js';
@@ -45,11 +49,17 @@ export default function MatchPage() {
 
   const view = useMatchStore((s) => s.view);
   const orderStatus = useMatchStore((s) => s.orderStatus);
+  const acceptedOrdersRecord = useMatchStore((s) => s.acceptedOrders);
+  const recordAccepted = useMatchStore((s) => s.recordAccepted);
+  const forgetAccepted = useMatchStore((s) => s.forgetAccepted);
+  const clearOrderStatus = useMatchStore((s) => s.clearOrderStatus);
 
   const selectedAgentId = useUiStore((s) => s.selectedAgentId);
   const selectAgent = useUiStore((s) => s.selectAgent);
   const draftByAgent = useUiStore((s) => s.draftByAgent);
   const setDraft = useUiStore((s) => s.setDraft);
+  const pendingOptionKey = useUiStore((s) => s.pendingOptionKey);
+  const setPendingOption = useUiStore((s) => s.setPendingOption);
   const connectionStatus = useUiStore((s) => s.connectionStatus);
   const setConnectionStatus = useUiStore((s) => s.setConnectionStatus);
   const matchSubState = useUiStore((s) => s.matchSubState);
@@ -94,11 +104,43 @@ export default function MatchPage() {
   const activeAgentId = selectedAgentId ?? firstAgentId;
   const draft = activeAgentId ? (draftByAgent[activeAgentId as string] ?? emptyDraft()) : emptyDraft();
 
-  const targets = view
-    ? composerTargets(view, activeAgentId, draft)
-    : { nextSlotIndex: -1, legalForSlot: [], moveTargets: [], strikeTargets: [] };
-
   const activeAgent = livingAgents.find((a) => a.id === activeAgentId) ?? null;
+  const prefix = draft.slots.filter((a): a is Action => a !== null);
+  const nextSlotIndex = draft.slots.findIndex((slot) => slot === null);
+  const acceptedOrders = new Map(Object.entries(acceptedOrdersRecord));
+
+  /**
+   * ORDER-05: the player's agents share one Intel pool but submit
+   * separately, so the Intel offered to this agent must already account for
+   * what the other agent's accepted order will spend. `acceptedOrders` is
+   * the client's own record of what the room acked this round — the view's
+   * Intel figure does not reflect it, because Intel is charged during
+   * resolution, not at submission. The engine does the arithmetic; this
+   * passes it what the client legitimately knows.
+   */
+  const intelAvailable = view && activeAgentId
+    ? intelAvailableFor(view, activeAgentId, acceptedOrders, prefix)
+    : 0;
+
+  /**
+   * The view every legality question about this agent's order is asked
+   * against. It carries the Intel left after the OTHER agents' committed
+   * orders, so `legalOrders` stops offering a card whose Intel is already
+   * spoken for — the client-side mirror of the room's own viewForOrdering.
+   * Everything else on screen (board, result, intel drawer) keeps the real
+   * view; only order composition uses this one.
+   */
+  const composingView =
+    view && activeAgentId ? viewForComposing(view, activeAgentId, acceptedOrders) : view;
+
+  // The option currently awaiting a target, resolved fresh each render from
+  // the same legalOrders answer the picker rendered — never cached, so it
+  // cannot outlive the legality that produced it.
+  const pendingOption: ActionOption | null =
+    composingView && activeAgentId && pendingOptionKey
+      ? (actionOptions(composingView, activeAgentId, prefix).find((o) => o.key === pendingOptionKey) ??
+        null)
+      : null;
 
   function handleAssign(slotIndex: number, action: Action) {
     if (!activeAgentId) return;
@@ -110,15 +152,37 @@ export default function MatchPage() {
     setDraft(activeAgentId, clearSlot(draft, slotIndex));
   }
 
+  /** An option with no target commits immediately; one with targets puts the
+   *  board into targeting mode instead (ORDER-07). */
+  function handleChooseOption(option: ActionOption) {
+    if (option.immediate) {
+      handleAssign(nextSlotIndex, option.immediate);
+      return;
+    }
+    setPendingOption(option.key);
+  }
+
   function handleSelectNode(nodeId: NodeId) {
-    const action = actionForNodeClick(targets.legalForSlot, nodeId);
-    if (action) handleAssign(targets.nextSlotIndex, action);
+    if (!composingView || !activeAgentId || !pendingOption) return;
+    const action = actionForTarget(composingView, activeAgentId, pendingOption, nodeId, prefix);
+    if (action) handleAssign(nextSlotIndex, action);
   }
 
   function handleSubmit() {
     if (!view || !activeAgentId) return;
     const order = toAgentOrder(activeAgentId, draft);
+    recordAccepted(activeAgentId, order.actions);
     submitOrder(socket, view.round, activeAgentId, order.actions);
+  }
+
+  /** ORDER-09: withdraw a submitted order and compose a replacement. The
+   *  room accepts a fresh SUBMIT_ORDER for an already-committed agent while
+   *  the round is still open, so this clears the local lock and the draft. */
+  function handleRetract() {
+    if (!activeAgentId) return;
+    forgetAccepted(activeAgentId);
+    clearOrderStatus(activeAgentId);
+    setDraft(activeAgentId, emptyDraft());
   }
 
   function handleSendChat(text: string) {
@@ -175,8 +239,10 @@ export default function MatchPage() {
           visibleNodes={view.visibleNodes}
           activeBlockades={view.activeBlockades}
           selectedNodeId={activeAgent?.nodeId ?? null}
-          legalTargets={targets.moveTargets}
-          strikeTargets={targets.strikeTargets}
+          // Only the pending option's own targets are highlighted, so the
+          // board never offers a node whose meaning is ambiguous (ORDER-07).
+          legalTargets={pendingOption && pendingOption.kind !== 'STRIKE' ? pendingOption.targets : []}
+          strikeTargets={pendingOption?.kind === 'STRIKE' ? pendingOption.targets : []}
           onSelectNode={handleSelectNode}
         />
       </div>
@@ -198,14 +264,18 @@ export default function MatchPage() {
             </div>
             <LockedInRow view={view} />
             <OrderComposer
-              view={view}
+              view={composingView ?? view}
               selectedAgentId={activeAgentId}
               onSelectAgent={selectAgent}
               draft={draft}
               orderStatus={activeAgentId ? orderStatus[activeAgentId as string] : undefined}
-              onAssign={handleAssign}
+              intelAvailable={intelAvailable}
+              pendingOptionKey={pendingOptionKey}
+              onChooseOption={handleChooseOption}
+              onCancelOption={() => setPendingOption(null)}
               onClearSlot={handleClearSlot}
               onSubmit={handleSubmit}
+              onRetract={handleRetract}
             />
           </div>
         )}

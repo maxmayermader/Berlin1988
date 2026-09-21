@@ -1,221 +1,213 @@
 # Feature Research
 
-**Domain:** Realtime multiplayer hidden-movement / simultaneous-secret-order board game web app (lobby + deckbuilder + in-match UI)
-**Researched:** 2026-08-18
-**Confidence:** MEDIUM overall (LOW-confidence individual web sources, but convergent across many independent implementations — Coup clones, Board Game Arena, webDiplomacy, Jackbox — plus well-established genre conventions the researcher already has high-confidence domain knowledge of: Codenames, Among Us, Diplomacy variants, Slay the Spire / Hearthstone / Marvel Snap deckbuilders)
+**Domain:** Simultaneous-turn hidden-movement game — in-match UI (order composer, deduction surfaces, resolution replay, spectating, lobby settings, diegetic visual redesign)
+**Researched:** 2026-09-15
+**Confidence:** MEDIUM overall (HIGH on rules/architecture constraints pulled from this repo's own docs; MEDIUM/LOW on external genre conventions — see per-item notes; several claims below are corroborated by both web search and established genre knowledge and are flagged MEDIUM, a few rest on genre knowledge alone with no single strong source and are flagged LOW)
+
+This file covers **only the 8 new feature areas** for milestone v1.1. It does not re-research anything already shipped in v1.0 (board rendering, Move/Hold order flow, deckbuilder, lobby ready-up, chat, round history drawer, own Burn Track panel — see PROJECT.md "Validated").
+
+---
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist. Missing these = product feels incomplete or unplayable with a group of friends.
+Features players of this genre assume exist. Missing them made the 2026-09-14 playtest feel broken — that trigger *is* the evidence these are table stakes, not nice-to-haves.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Short alphanumeric/numeric **join code** to enter a private lobby | Every code-based multiplayer game (Coup clones, Jackbox, Codenames.game, Among Us) uses a 4-6 character room code as the primary "play with my friends" path. It's the one thing a non-technical player has to type. | LOW | PartyKit room name *is* the join code if you generate a short random slug as the room id — no separate mapping table needed for MVP. |
-| **Shareable join link** (code embedded in URL) | Reduces the join code to "click the link" for the common case (Discord/text sharing). BGA forum threads explicitly call out losing a "send people a link" flow as a regression. | LOW | `/lobby/[code]` route; code param does the work. |
-| **Public/open lobby browser** | Confirmed as an explicit requirement (Two Spies-inspired: "join by code or from a public list"). Standard for any game wanting a "click and wait for a table" onboarding path (BGA's automatic-mode rationale). | MEDIUM | Needs a lightweight lobby-listing index (which rooms exist, are open, player count) — likely a small KV/DB list PartyKit keeps updated, since PartyKit rooms are otherwise siloed. |
-| **Ready-up flow** with visible per-seat ready state | Universal pattern across every lobby system found (Coup clones, BGA, Jackbox): players are shown a roster and each toggles Ready; game only starts once the threshold is met. Players need to *see* who's stalling. | LOW | This project already has a specific threshold rule (≥50% of filled seats) — the UI just needs to expose per-seat state and a visible countdown once threshold is crossed. |
-| **Host controls: kick, seat/size config** | Jackbox didn't add kick until Party Pack 9 (2022) after years of user complaints — its absence was a well-documented pain point, not a nice-to-have. A host without the ability to remove a griefer or AFK player is a table-stakes gap, not a polish item. | LOW-MEDIUM | Must also cover the "kick mid-lobby vs. mid-match" distinction; mid-match kicking a human likely just converts the seat to an AI (see below) rather than voiding the match. |
-| **AI auto-fill for empty/kicked seats** | Explicit project requirement (solo mode) and also solves the "player disconnects mid-match" problem that every realtime board game app must handle somehow. | MEDIUM | Reuses the existing `packages/ai` bot; UI needs to show "this seat is now AI-controlled" clearly so remaining humans aren't confused about who they're playing against. |
-| **In-lobby and in-match chat** | Every social party/deduction game (Jackbox, Coup clones, Among Us) treats chat as core to the social experience, not optional — deduction/bluffing games specifically live and die on table talk. | LOW-MEDIUM | Free text + predefined flavor prompts is already scoped; predefined prompts also double as a lightweight moderation safety valve (no free-text option needed for players who don't want to type). |
-| **Countdown-to-start after ready threshold** | Confirmed pattern everywhere ready-up exists — a visible timer after threshold-crossing gives late players a last chance and signals imminent lock-in, avoiding a jarring instant-start. | LOW | Simple client countdown driven by a server timestamp. |
-| **Deck/loadout persistence without login** | Project constraint: no accounts for v1, but a player who built a loadout expects it to still be there next session. Every browser deckbuilder (physical-TCG companion apps, web deckbuilders) treats "my deck disappeared" as a critical bug. | LOW | `localStorage`, keyed by a locally-generated player id; the ceiling here is explicitly "don't build cross-device sync," not "don't persist at all." |
-| **Deckbuilder: legality/validation feedback in real time** | Every competitive deckbuilder (Hearthstone, Marvel Snap, MTG Arena) surfaces "why can't I add this" the instant a rule is violated (count cap, budget cap, color minimum) rather than at submit time. Berlin 1988 has three simultaneous constraints (10 cards, ≤3 per icon, ≥2 colors, ≤26 BP) that must all be legible at a glance. | MEDIUM | This is a genuinely nontrivial UI problem — see Differentiators; the "table stakes" bar is just "don't let me submit an illegal deck and find out later." |
-| **Starter/preset loadouts, one-click load** | Every deckbuilder with build constraints ships presets so new players aren't staring at a blank grid — the game design doc already names four archetypes (Phantom, Hunter, Oligarch, Spider) as the intended on-ramp. | LOW | Data-only feature; presets are already specified in `GAME_DESIGN.md` §6.4. |
-| **Round/turn timer with visible countdown** | Standard in every simultaneous-order web implementation with a clock (webDiplomacy, Neptune's Pride-style games): players need to see time pressure, not discover it via a surprise auto-submit. | LOW | Already speced (60s default, host-configurable); UI is a countdown ring/bar plus a "waiting on N players" indicator that never reveals *who*. |
-| **"Orders submitted" indicator without revealing content** | This is the single most load-bearing convention across every simultaneous-secret-order implementation (Diplomacy variants, Coup's hidden-role reveal, RoboRally programming phase): show *that* other players have locked in, never *what*. Its absence breaks the core hidden-information promise of the entire genre. | MEDIUM | Needs strict enforcement at the client-state level, not just a UI convention — see Architecture/Pitfalls; this is a fog-of-war boundary as much as a UI feature. |
-| **Round resolution playback as a report, not a live simulation** | webDiplomacy and RoboRally-style apps resolve a whole round as one atomic "reveal," then let the player step through *what happened* (movement, strikes, discoveries) rather than animate a live free-for-all. Berlin 1988's own design doc explicitly frames resolution as "played back as one report." | MEDIUM | This is confirmed by the game design doc itself (§7, step diagram: "Resolution... played back as one report") — treat it as a spec requirement, not just a research finding. |
-| **Personal "what they know about me" panel (Burn Track)** | Explicitly specified in the game design doc (§6.3): players must be able to audit their own public tells exactly as opponents see them. This is unusual for the genre generally but non-negotiable for *this* game specifically. | LOW-MEDIUM | Straightforward list/log UI once the underlying Burn Track data exists in `PlayerView`. |
-| **Node-graph map as the primary board surface** | Table stakes for any hidden-movement game with a graph board (this is the whole genre convention, e.g. Fury of Dracula, Letters from Whitechapel, Two Spies itself) — an abstracted list/table UI instead of a spatial map would break the "read the board" experience the entire ruleset is built around. | HIGH | SVG-based, responsive via the existing `x`/`y` percentage fields already in the node schema (`docs/GAME_DESIGN.md` §3.1) — this is the single biggest UI build in the project. |
-| **Match-end / result screen with win condition explanation** | Universal — a match that just stops with no explanation of *why* (extraction vs. elimination vs. score) reads as broken, especially with three distinct win paths. | LOW | Straightforward summary screen; data already exists in engine victory-check output. |
+| **Full action/card picker in the order composer** (Sprint, Wiretap, Bribe, Decoy, Safehouse, Strike-mode-A, Ambush/Strike-mode-B, silencer buy) | Every reference game in this genre (Frozen Synapse, Into the Breach, Hearthstone, Two Spies itself) lets you pick from your *entire* available toolkit each turn, not a subset. `legalOrders()` already returns every legal action; the UI is the only thing missing this. | MEDIUM | Two-step interaction pattern is standard: (1) pick an ability/action, (2) pick a target on the map, mirroring Hearthstone/Slay the Spire "select card → drag/click target" and Into the Breach "select unit → select tile." Berlin 1988's wrinkle: some actions (Ambush, silencer) target *no* node (self-only) and some (Wiretap) can target *any* node, not just adjacent — the composer needs both an "implicit self-target" path and a "pick anywhere" path, not just adjacency highlighting. |
+| **Cost/cooldown/availability shown before commit** | Hearthstone shows mana cost on the card face before you drag it; Into the Breach shows ability cost/charge state in the unit panel before you select a tile. Committing an order you can't afford, silently rejected after the fact, reads as a bug. | LOW–MEDIUM | `viewForOrdering()`/`self` in `PlayerView` already carries Intel, cooldowns, and passive status — this is a pure rendering task once the composer exists, not new engine work. Must show *why* something is greyed out (on cooldown vs. can't afford vs. shared Intel pool already spent by the other agent this round), matching the "why is this illegal" affordance genre convention (Slay the Spire dims and won't accept a drop when a card can't legally be played; Into the Breach's UI database groups this under "Equipped Items & Abilities" state, not a floating tooltip only). |
+| **Two-agent order composition sharing one Intel pool** | Design doc §4 makes this the core tactical tension (4 actions, shared Intel, per-card cooldowns shared across agents). If the UI computes each agent's legality independently, ordering Agent A first can make an action for Agent B look legal when it no longer will be once A commits. | MEDIUM–HIGH | `viewForOrdering(state, playerId, agentId)` exists precisely to solve this — call it per-agent, in order, threading each just-submitted order into the next call's view before showing Agent B's options. This is the single trickiest bit of new order-composer engineering; genre precedent (Frozen Synapse's per-unit waypoint planning with a shared "Prime" commit) confirms the two-phase pattern (assemble multiple units' orders locally, submit together) but none of the reference games share a *resource pool* across units the way Berlin 1988 shares Intel — this constraint is closer to a shared-mana multi-creature turn in a TCG than to any single hidden-movement precedent found. |
+| **A committed-but-editable order until the round locks** (retract per agent) | Already in the wire protocol (`RETRACT_ORDER`) and matches every reference game's "plan, then commit" split (Frozen Synapse explicitly separates unlimited planning time from a distinct resolution step). | LOW | Protocol-level support already exists (`docs/ARCHITECTURE.md` §5); this is wiring, not new design. |
+| **Own-status panel: Intel, full loadout with cooldown/passive state, silencers, safehouse, traps, decoys** | Every card game (Hearthstone) and every tactics game (Into the Breach's "Equipped Items & Abilities" panel) puts your own full resource state in one glanceable place. `PlayerView.self` already contains all of this — it's an unrendered field, per the playtest audit. | LOW–MEDIUM | Straightforward per-field rendering; the design nuance is grouping (actives vs. passives vs. consumables) and showing cooldown as a countdown, not a boolean, matching Hearthstone-style ability-charge UI conventions. |
+| **Signals log surfaced every round** (`docs/GAME_DESIGN.md` §10: own vision, adjacency chatter, "you are not alone," informant reports, radio intercept, public events, Burn Tracks) | Hidden-movement genre convention across Scotland Yard, Fury of Dracula, and Specter Ops is a *persistent, re-readable* clue trail — never a toast that vanishes. The design doc itself calls complete fog "a design trap" and signals the intended fix; a UI that drops these on the floor defeats the deduction pillar entirely. | MEDIUM | `PlayerView.signals` already exists and is unrendered per the playtest audit — again UI-only, but the *log* (append-only, grouped by round, scrollable back) is new UI structure, not a single-round toast. Precedent: Scotland Yard Master's app replaced a physical travel log with a persistent digital one rather than an ephemeral popup; Fury of Dracula players explicitly asked for exactly this kind of scrollable full-game log when the app lacked one. |
+| **Alive/burned roster for every player, not just self** | Every multiplayer game with eliminations (Among Us's "died/reported" state, any shooter roster) shows *whose* pieces are gone at a glance without narrating position. This is literally the second playtest-blocking gap found: "could not tell whether their own or an opponent's agents had been burned." | LOW | `PlayerView.opponents[].agentsAlive/eliminated` already exists per the code audit — unrendered. This is presentation only. Must not show *where* an agent was when burned beyond what `ResolutionEvent`/signals already grade (adjacent-exact vs. sector-vague vs. nothing) — see Anti-Features. |
+| **Every player's Burn Track visible, not only your own** | `docs/GAME_DESIGN.md` §6.3 explicitly defines the Burn Track as symmetric public information ("everyone's, including your own"); `PlayerView.burnTracks` is already `Record<PlayerId, BurnEntry[]>` for exactly this reason. Only rendering your own (v1.0's shipped scope) is an intentional narrowing that the design doc never asked for. | LOW | Data already flows correctly per §4.2 of ARCHITECTURE.md (symmetric, single-computed-once, redaction from *Cutout* baked in at append time) — purely a rendering gap, and the lowest-risk item in this whole milestone because there's no fog-boundary reasoning left to get wrong. |
+| **Animated but skippable resolution replay naming actors within fog entitlement** | Genre convention from Frozen Synapse (a single button replays the ~5s simultaneous resolution) and this project's own architecture doc (§9: "the most important UI in the game," ~700ms/beat, skippable and scrubbable) already commits to this. | HIGH | This is the most complex single new surface. `ResolutionEvent[]` is already fog-filtered server-side (ARCHITECTURE.md §4.2) so the timeline can safely animate/name whatever is in the log — the complexity is sequencing 11 priority-ordered event types into a legible timeline with skip/scrub, not re-deriving what's visible (that work is already done upstream). |
+| **Spectator view for eliminated players (own fog only)** | Standard in social/hidden-info multiplayer (Among Us ghosts, any battle-royale spectator cam) that eliminated players keep watching rather than being ejected from the room; `plan.md` Phase 5 already lists "spectator seats for eliminated players (own fog only)" as a requirement. | MEDIUM | Important genre divergence to note: Among Us intentionally grants ghosts *omniscient* vision because the game is over for them strategically and nothing is left to protect. Berlin 1988 must NOT copy that — GAME_DESIGN.md §8.1 says an eliminated player "stays in the room as spectator, seeing only what their own fog allowed them to see while alive," i.e., frozen/continuing at their own historical entitlement, not a promotion to full information. This is an explicit design decision already made; the research finding is simply "don't reach for the Among Us pattern here." |
+| **Host lobby settings for agents/timer/round-limit/blockade-mode/dossier-count, server-enforced** | `docs/GAME_DESIGN.md` §2 already defines this settings table; Board Game Arena's convention (configure everything before opening the table, non-hosts see current settings from the listing) is the standard shape for this UI pattern and matches what's already speced. | MEDIUM | Genre convention (BGA) confirms: settings must be visible to non-host players too, not host-only — the lobby's public listing should reflect current settings before anyone joins, and joined non-host players should see them read-only, live-updating if host changes them pre-start. Server-side enforcement (never trust a client-set value) is already a hard rule in this codebase (Zod at every boundary) so this is a UI-plus-validation task, not a new trust model. |
+| **Two additional maps sized for 3–4 players (FFA-16, FFA-18)** | `docs/GAME_DESIGN.md` §3.1 already specifies node counts, average degree, and U-Bahn station counts for both; "content is data, not code" (CLAUDE.md rule 5) means this is map-data authoring against the existing `NodeState`/edges schema, not new engine logic. | MEDIUM | Complexity lives entirely in map *design* (graph balance: sightlines, chokepoints, U-Bahn placement) rather than code — the existing Duel-12 map is the template. Needs sim-harness validation (bot-vs-bot balance sweep) before being trusted with humans, per this project's own established practice. |
 
 ### Differentiators (Competitive Advantage)
 
-Features that set the product apart. Not required, but valuable — and should tie back to the Core Value ("go from home page through a complete 14-round match with no gaps").
+Features that go beyond bare functional parity and specifically serve this project's core value (a hidden-movement deduction game that's actually legible to new players, per plan.md's Phase 2 done-condition: "a person who has never seen the game can complete a match... and correctly explain what happened").
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| **Deckbuilder budget/constraint visualizer** (live BP meter, icon-count pips, color-requirement checklist) | Most competitive deckbuilders bury constraint feedback in tooltips or error toasts. A persistent, glanceable meter (BP used/26, icon caps as filled pips, color requirement as a checklist) turns "why is this illegal" into something you see before you try, which matters more here than in a typical TCG because Berlin 1988 has *four* simultaneous constraints instead of one. | MEDIUM | Directly serves the design doc's framing of deckbuilding as "the central deckbuilding decision" (active/passive split) — worth investing real design effort here versus treating it as a bolt-on. |
-| **Archetype-aware deckbuilder hints** (e.g. flagging "you have 3 actives, 7 passives — this is a scalpel with no armour") | The design doc itself narrates the tension in prose ("Ten slots. Every passive you take is an active you don't have"). Surfacing that narration live in the UI (a small "reading" of the current build) teaches new players the strategic axis instead of leaving them to discover it by losing. | MEDIUM | Pure UI/copy feature over existing deck-validation data; no new engine work. Aligns with `design:ux-copy` skill territory if pursued. |
-| **Post-round "what you learned" digest** distinct from the raw resolution log | Rather than just replaying events, explicitly summarize the Signals-phase information a player received this round (adjacency chatter, Radio Intercept, informant reports) as a compact deduction aid — most hidden-movement apps just dump a log and make players reconstruct inference themselves. | MEDIUM-HIGH | Directly supports Design Pillar #1 ("deduction over reflexes") by making the deduction *surface* legible instead of just the raw events. Strong differentiator vs. Two Spies, which the design doc says has none of this apparatus. |
-| **AI opponent "tells" surfaced as a personality readout** (not stats, but flavor) | The design doc promises "5 named AI personalities with readable, learnable habits" as a stated advantage over Two Spies ("opponent is a stranger"). A lobby/seat UI that names and briefly characterizes the bot (not just "Bot 1 — Hard") turns the AI work already done in `packages/ai` into a visible product feature instead of an invisible backend. | LOW | Almost pure UI/copy — the personality data already exists; this is presentation, not engineering. High leverage for low cost. |
-| **Solo-mode seat visualization** showing which seats are human vs. AI at a glance, live | Reinforces the "solo mode = host fills empty seats with AI" mental model the project already committed to; most competitors treat bot-fill as invisible plumbing rather than a visible, toggleable lobby feature. | LOW | Small lobby-UI addition on top of table-stakes seat list. |
-| **Retro CRT/teletype aesthetic applied consistently across lobby, deckbuilder, and match** (not just the map) | The design doc specifies a strong aesthetic pillar (monochrome-green phosphor, monospaced misaligned type, analogue sound) for the *game*, but most competitors' lobby/deckbuilder chrome is generic Bootstrap-style UI bolted onto a themed board. Carrying the theme end-to-end (including the lobby and deckbuilder, not just the map) is a differentiator few hidden-movement web apps bother with. | MEDIUM | Must be reconciled with accessibility (design doc flags this explicitly, §1, cross-ref ARCHITECTURE.md §9) — don't let flavor override contrast/readability requirements. |
+| **"What they know about me" framing for the Burn Track, applied consistently to the roster/signals redesign** | GAME_DESIGN.md §6.3 already calls for a "what they know" panel for your own Burn Track — extending that self-audit framing to the whole information surface (i.e., every panel answers "what is publicly known" vs. "what only I know") is what separates a legible deduction game from a confusing fog-of-war mess. No reference game in this research explicitly frames its UI this way, which is a genuine opportunity: most digital hidden-movement adaptations (Scotland Yard Master, Fury of Dracula digital) show *your* clues but rarely surface "here is exactly what your opponents can currently infer about you." | MEDIUM | Mostly a copy/labeling and information-architecture exercise on top of data that already exists in `PlayerView` — pairs the Burn Track with the roster and signals log under one mental model ("public record" vs. "private intel") rather than three disconnected panels. |
+| **Naming/renaming "Burn Track" vs. "burned" to resolve the collision PROJECT.md flags** | The v1.0 postmortem explicitly notes the terminology collision between "Burn Track" (card-use history) and "burned" (agent killed) as a source of confusion. Fixing this is cheap and directly improves the exact confusion the playtest surfaced. | LOW | Pure copy/naming change (e.g., rename the public capability log to something like "Dossier on You" / "Known Capabilities" and reserve "burned" strictly for agent death) — no engine change, and it is a genuinely differentiated UX decision no reference game needed to solve because none of them have this specific double meaning. |
+| **Replay that narrates causally ("shoot where they're going, not where they are")** | GAME_DESIGN.md §7.2 explicitly states this is "the skill ceiling of this game" and that resolution order is fixed and published specifically so players can learn to reason about it. A replay that visually demonstrates movement completing *before* strikes resolve (rather than just listing events) teaches the game's central skill passively, matching Into the Breach's philosophy that telegraphing exactly what happens and why makes every loss feel like the player's own fault rather than the game's. | MEDIUM–HIGH | Requires sequencing the 11-step pipeline into visually distinct beats (movement completes and is *seen* completing, then a scan happens against the new position, then a strike lands or misses against that same new position) rather than a flat chronological event list — this is a presentation/sequencing decision layered on top of the already-ordered `ResolutionEvent[]`. |
+| **Redacted/graded information display matching strike-noise grading (adjacent = exact node, everyone else = sector only)** | Already a `projectView()`-level mechanic (ARCHITECTURE.md §4.2) — surfacing this gradient visually (e.g., a roster/signals entry that's precise for you and vague for others, styled as a redaction bar over the parts you're not entitled to) turns an existing fog mechanic into the literal "declassified dossier" visual metaphor the milestone wants, unifying two otherwise-separate goals (deduction UI + visual redesign) into one coherent idea. | MEDIUM | This is where the "declassified dossier" aesthetic (manila paper, redaction bars, stamps) can do double duty as *functional* UI — a redaction bar isn't just decoration, it's the correct way to represent "you don't have entitlement to this part of the signal." Genre research found no reference game combining a diegetic redacted-document skin with an actual fog-of-war entitlement boundary this literally; it's a strong differentiator specific to this project's premise. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem good but create problems, or fall outside this milestone's scope.
+Ranked by how directly they would violate this project's hard fog/purity rules (CLAUDE.md, ARCHITECTURE.md §4.1) or re-implement engine logic client-side.
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|------------------|-------------|
-| **Live/animated simultaneous movement** (watching all agents glide across the map in real time as orders resolve) | Feels cinematic; "why just show a report when we could animate it" | Genre consensus (webDiplomacy, RoboRally-style apps) and the project's own design doc converge on resolving as one atomic report: live animation of *all* agents simultaneously is visually incoherent (whose move do you watch first?) and — worse — risks leaking information mid-animation before the fog-of-war boundary would otherwise allow it. Also meaningfully higher engineering cost for negative value. | Sequential, ordered step-through of the fixed resolution priority (already specified in §7.2) — reveal information exactly as the rules define it, in the rules' own step order, at the player's own pace. |
-| **Global matchmaking / skill-based ELO queue** | "Two Spies eventually added Global Showdown random matchmaking with skill estimates" — tempting to replicate | Explicitly out of scope: no accounts means no durable identity to attach skill/rating to, and the project's stated audience is "a group of friends" playing together, not strangers matched by skill. Building this now is scope creep against a v1 that's already anonymous/local-storage-only. | Public open-lobby browser (table stakes above) covers "find any open game"; defer skill-based matchmaking to a future milestone that also revisits accounts. |
-| **Free-text chat with no moderation path** | Simplicity — "just let people type" | A public open-lobby browser means strangers can end up in the same room; unmoderated free text in a public-facing multiplayer surface is a real abuse vector (this is exactly why Jackbox's kick feature and predefined-prompt patterns exist). | Ship the predefined flavor-text prompts as the default-safe channel (already scoped) plus free text, and make sure host-kick (table stakes) is the moderation backstop — don't add a full reporting/moderation system for v1, but don't ship free text with zero mitigation either. |
-| **Persistent server-side deck library / cloud save** | "What if I switch browsers" is a reasonable question | Explicitly deferred: cross-device sync depends on accounts, which are explicitly out of scope for this milestone. Building sync infrastructure now duplicates work once accounts land later. | `localStorage` persistence (table stakes above) with an explicit, honest "decks are saved on this device" message in the UI so players aren't surprised. |
-| **Rich mobile-optimized responsive layout for the match screen** | "People will want to play on their phone" | Explicitly out of scope per PROJECT.md — a node-graph board with drag/click interactions, a 10-card deckbuilder grid, and a 60-second timer are all meaningfully harder to make good on a small touchscreen, and chasing that now would slow the desktop-first core loop this milestone exists to ship. | Desktop/browser-first; ensure "not broken" on mobile (readable, scrollable, no hard crashes) without investing in touch-optimized interaction design. |
-| **In-match voice chat** | Party games (Jackbox) are often played with voice already open (Discord, in person) | Adds real infrastructure (WebRTC signaling, room audio mixing) for a feature most groups already solve out-of-band via Discord/in-person, especially given this project's "friends playing together" framing. | Text chat only (table stakes above); let players bring their own voice channel. |
-| **Full custom-rule preset marketplace / user-created game modes** | The lobby already exposes a rich settings surface (map, agents, blockades, etc.) — "let people save and share configs" feels like a natural extension | Real scope expansion: needs a sharing/discovery mechanism, moderation for shared content, and persistence beyond a single player's own device — none of which this milestone's constraints (no accounts, local-storage only) support cleanly. | Host configures settings per-match as already scoped; defer named/shareable presets to a future milestone. |
+| **Showing an opponent's exact node the moment they're burned, in the roster or replay, beyond what strike-noise grading allows** | Feels natural — "they died, why can't I see where" — and several genre roster/kill-feed conventions (shooter kill feeds) show exact location. | This is a direct fog-of-war leak. GAME_DESIGN.md §5.2 deliberately grades strike noise (exact node only for adjacent agents, sector-only for everyone else, nothing if silenced); the roster/replay must respect the *same* grading `projectView()` already applied to the underlying `ResolutionEvent`/signal, not re-derive or "helpfully" upgrade precision because the UI happens to know the node id from some other field. | Show only what the corresponding signal/event already grades: "burned" + (exact node if you were adjacent; sector name if not; nothing beyond "burned" if silenced and non-adjacent). Never let the roster or replay reach into a full `GameState`-shaped object for extra detail the fog boundary withheld. |
+| **Ghost/spectator omniscience after elimination (Among Us pattern)** | Among Us's ghosts get full-map vision and it's a well-known, well-liked pattern from the genre's most popular game. | GAME_DESIGN.md §8.1 already explicitly rejects this: eliminated players see only what their fog allowed *while alive*, continuing forward at that same entitlement — because unlike Among Us (game effectively over for that player's win condition, no one left to protect), Berlin 1988's other living players still have secrets worth protecting from someone who might describe the match to a partner in a 2v2, or simply because unequal information among "equally eliminated" spectators would be unfair. | Spectator mode = continue receiving `projectView()` output for that player's seat exactly as before elimination (their agents are gone/removed per §8.1, but their fog boundary and Burn Track visibility rules don't change). This is already the design decision on record — the anti-feature is any drift toward "let's just show them everything since they're out anyway." |
+| **Client-side legality re-computation instead of using `legalOrders()`/`viewForOrdering()`** | Tempting shortcut when building the order composer — "just grey out anything that looks wrong" using ad hoc UI logic (e.g., "if Intel < cost, grey it out") instead of calling into the engine's own query functions. | Re-implements engine rules in the UI, which is explicitly the kind of drift this codebase's architecture is built to prevent (`packages/engine` is the one source of truth for legality; ARCHITECTURE.md frames the client's copy of the engine as strictly "predictive, never authoritative"). Ad hoc UI-side legality checks will inevitably drift from the real rules (e.g., forgetting the shared-Intel-pool-across-two-agents wrinkle, or the "already trapped this node" rule) and produce a composer that shows something as legal that the server then rejects, or vice versa. | Always call `legalOrders(view, agentId, prefix)` / `viewForOrdering()` from `@berlin/engine` to drive what the composer offers and greys out — the UI's job is presentation of engine output, never a parallel legality model. |
+| **A persistent, filterable "combat log" that lets a player search/replay any past round's exact hidden data (e.g., "show me exactly where I was hit from")** | Feels like a quality-of-life win — deduction games reward re-reading old clues, so "let me pull up everything" seems aligned with the genre. | Two risks: (1) if built naively by re-filtering historical events against the player's *current* state rather than what was computed once at that round's resolution time, it reproduces the exact STRIKE_FIRED regression this project already found and fixed in Phase 4 (documented in PROJECT.md's Key Decisions — "round history is a server-side full match log, filtered exactly once at round-resolution time, never re-filtered later"); (2) an overly powerful search/filter UI risks aggregating fog-graded signals in a way that lets a player triangulate information beyond what any single signal was designed to reveal (e.g., cross-referencing every "sector-only" strike report over many rounds to back out an opponent's safehouse faster than the design intends). | Reuse the existing round history drawer pattern (already shipped, already filtered once and stored) — extend its rendering, not its filtering logic. Any new "search my history" feature should operate over already-filtered, already-stored per-round views, never re-derive from a fresher state. |
+| **A single monolithic "diegetic" font/texture applied to every panel including dense data tables (loadout grid, signals log)** | The declassified-dossier aesthetic (manila paper, typewriter type, stamps) is explicitly the milestone's visual direction, and it's tempting to apply it uniformly for consistency. | Genre research (typography/accessibility sources) consistently finds stylized/typewriter fonts measurably harder to read at body-text length and in dense tabular data than a plain face; ARCHITECTURE.md §9 already establishes the precedent for this project (the CRT aesthetic was themeable tokens, not applied indiscriminately, and sector color was never allowed to be the only signal) and PROJECT.md explicitly keeps "non-color sector encoding, keyboard navigation, and reduced-motion support" as non-negotiable even while deselecting the high-contrast theme for this milestone. | Reserve typewriter/stamp/manila treatment for headers, card names, stamps, and short labels; use a plain, high-legibility face for body text, numeric data (Intel counts, cooldown timers), and the signals log/loadout grid — matching the "diegetic skin over a legible information layer" approach this project already uses successfully for its board (SVG shapes/patterns, not just color, per §9). |
+
+---
 
 ## Feature Dependencies
 
 ```
-Home page (create / join / deckbuilder entry)
-    └──requires──> Anonymous local identity (player name in localStorage)
+Full order composer (all actions/cards + cost/cooldown display)
+    └──requires──> viewForOrdering() per-agent sequencing (existing engine function, unused by UI today)
+    └──requires──> own-status panel data model (Intel, loadout, cooldowns) — same PlayerView.self fields
 
-Join code + shareable link
-    └──requires──> Room creation (PartyKit room = code)
+Own-status panel
+    └──shares data with──> Burn Track ("what they know about me") differentiator
 
-Public open-lobby browser
-    └──requires──> Lobby index (list of open rooms, kept in sync with PartyKit rooms)
-    └──enhances──> Join code (second discovery path, not a replacement)
+Signals log
+    └──requires──> PlayerView.signals rendering (already delivered by server, unrendered)
+    └──enhances──> Roster (adjacency chatter / "not alone" signals contextualize roster state)
 
-Ready-up flow + countdown-to-start
-    └──requires──> Seat list with live per-seat state (PartyKit presence/awareness)
-    └──requires──> Host controls (seat size, kick) to exist first — ready-up on an unstable roster is meaningless
+Roster (alive/burned, every player) + every player's Burn Track
+    └──requires──> PlayerView.opponents[].agentsAlive/eliminated + burnTracks (already delivered, unrendered)
+    └──shares fog-grading rules with──> Resolution replay (both must respect the same strike-noise grading)
 
-Host kick
-    └──enhances──> AI auto-fill (kicked/disconnected seat converts to bot, doesn't just vacate)
+Resolution replay (animated, skippable, fog-bound)
+    └──requires──> ResolutionEvent[] fog-filtering (already done server-side, existing)
+    └──requires──> Roster/Burn Track naming conventions (a beat that burns an agent must match what the roster then shows)
+    └──enhances──> "shoot where they're going" differentiator (causal narration)
 
-Solo mode (AI fills empty seats)
-    └──requires──> AI auto-fill
-    └──requires──> Existing packages/ai bot integration (already built)
+Spectator view for eliminated players
+    └──requires──> Same projectView()-per-seat mechanism already used for live players — no new fog logic
+    └──conflicts with──> Any temptation to grant omniscience post-elimination (explicitly rejected in GAME_DESIGN.md §8.1)
 
-Deckbuilder (10-card loadout)
-    └──requires──> Card/content data already defined in packages/engine/src/content/
-    └──requires──> Local persistence (localStorage) to survive between sessions
-Deckbuilder budget/constraint visualizer ──enhances──> Deckbuilder (core)
-Archetype hints ──enhances──> Deckbuilder budget/constraint visualizer
-Starter/preset loadouts ──enhances──> Deckbuilder (lowers the on-ramp cost)
+Host lobby settings (agents/timer/round-limit/blockade/dossier-count)
+    └──requires──> Server-side enforcement of MatchSettings (existing Zod validation pattern) — SET_SETTINGS is host-only per protocol
+    └──enables──> FFA-16 / FFA-18 maps being selectable at all (agent-count and map choice are coupled: 2 agents recommended default per GAME_DESIGN.md §2)
 
-In-lobby deck/class editing ("class" in lobby)
-    └──requires──> Deckbuilder (same loadout system, per Key Decision in PROJECT.md)
+FFA-16 / FFA-18 maps
+    └──requires──> Existing map-data schema (NodeId, edges, sector, x/y%) — no engine changes
+    └──requires──> Sim-harness balance validation before human play (established project practice from Phase 3/4)
 
-In-match node-graph map
-    └──requires──> PlayerView projection (fog-of-war boundary, already built in packages/engine)
-    └──requires──> Node schema x/y percentages (already defined, GAME_DESIGN.md §3.1)
+Declassified-dossier visual redesign
+    └──enhances──> All of the above (applied last, as a skin over already-correct information architecture)
+    └──conflicts with──> Applying typewriter/stamp treatment to dense data panels (legibility anti-feature above)
 
-Secret order assignment UI (2 actions per agent)
-    └──requires──> In-match node-graph map (actions are declared against nodes/edges)
-    └──enhances──> "Orders submitted" indicator (locks in without revealing content)
-
-Simultaneous resolution report / step-through
-    └──requires──> Fixed resolution priority order already defined (GAME_DESIGN.md §7.2)
-    └──requires──> "Orders submitted" indicator having correctly hidden content pre-reveal
-    └──conflicts──> Live/animated simultaneous movement (anti-feature; mutually exclusive approaches to the same moment)
-
-Burn Track ("what they know about me") panel
-    └──requires──> Public card-usage log already emitted by engine
-
-Post-round "what you learned" digest (differentiator)
-    └──enhances──> Simultaneous resolution report (adds an inference layer on top of raw events)
-
-Match-end / result screen
-    └──requires──> Engine victory-check output (already exists)
-
-In-game chat (predefined prompts + free text)
-    └──enhances──> Host kick (moderation backstop for free text in a public-lobby context)
+Deploy apps/web to Vercel
+    └──independent of──> all UI features above, but is the actual blocker on closing the two pending human-verification UAT gaps from Phase 1/2
 ```
 
 ### Dependency Notes
 
-- **Ready-up flow requires host controls to exist first:** starting a countdown against a roster that can't be pruned (no kick) or resized invites griefing — build seat management before or alongside ready-up, not after.
-- **Public lobby browser requires a lobby index, which PartyKit doesn't give you for free:** PartyKit rooms are isolated by design (confirmed by research — presence/awareness is per-room). A public browser needs a small separate mechanism (a lobby-list room, or a lightweight external store) that tracks which rooms exist and are open — this is real, not incidental, work and should be scoped explicitly rather than assumed to fall out of "just add a join code."
-- **"Orders submitted" indicator and simultaneous resolution report share one constraint:** both depend on the fog-of-war boundary already enforced in `packages/engine`'s `PlayerView` projection holding at the UI layer too — the client must never receive another player's uncommitted or submitted order content before the Resolution phase, only a boolean "locked in" flag. This is the single highest-stakes UI/architecture seam in the whole milestone (see PITFALLS.md).
-- **Live/animated simultaneous movement conflicts with the report-style reveal:** these are two different answers to "how do you show a resolved round," and the project's own design doc has already chosen the report-style answer (§7 diagram). Treat live animation as explicitly rejected, not merely unbuilt.
-- **In-lobby deck/class editing depends on the deckbuilder being built as a reusable component**, not a home-page-only page — per the Key Decision already logged in PROJECT.md, this should be one shared UI module mounted in two places (home page, lobby), not two implementations.
+- **Order composer requires `viewForOrdering()`, not `projectView()`:** ARCHITECTURE.md §4 is explicit that composing actions for a two-agent player must go through `viewForOrdering(state, playerId, agentId)` rather than the standard fog-projected `PlayerView`, because a player's own two agents share one Intel pool and per-card cooldowns that `projectView()` alone doesn't sequence correctly across an in-progress order submission. This is the one piece of "new" engine-adjacent work in the whole milestone (calling an existing function correctly, in the right sequence) rather than pure UI.
+- **Roster, Burn Track, and resolution replay must share one fog-grading source of truth:** all three surfaces describe overlapping facts (who got burned, from where, how visibly) and must derive that from the identical already-fog-filtered `ResolutionEvent`/`signals`/`burnTracks` fields rather than each independently deciding how much to reveal — divergence here is exactly how a fog leak or a confusing contradiction (roster says "burned," replay is vague about why) would slip in.
+- **Spectator view conflicts with the Among Us omniscience pattern:** flagged explicitly because it's the most popular reference point in the genre and the wrong one for this project's already-decided design (§8.1's fog-preserving spectator).
+- **Host settings enable the new maps, but aren't the same phase of work as the maps themselves:** settings UI is protocol/lobby work; maps are content-data authoring plus a balance-sim pass. They can proceed in parallel once `MatchSettings`/map-selection wiring exists, but map balance validation should not block settings UI, and settings UI should not block map authoring.
+- **Visual redesign is applied last, everywhere:** because it's explicitly a "skin," per this project's own precedent of keeping the CRT theme as a themeable token layer (ARCHITECTURE.md §9), it should not be the vehicle that also fixes information-architecture gaps — those (order composer, signals log, roster, Burn Track) must be functionally correct first, in whatever baseline styling, then reskinned.
+- **Vercel deployment is orthogonal but time-sensitive:** it doesn't block any UI feature's *implementation*, but it blocks *verification* of all of them under real network conditions (per PROJECT.md's Context, it's the root cause of the still-open Phase 1/2 human-verification gaps) — sequencing it early enough to leave time for a real multi-browser playtest before milestone close is a scheduling dependency, not a technical one.
+
+---
 
 ## MVP Definition
 
-### Launch With (v1)
+Framed against this milestone's own stated "Done looks like": *the maintainer and friends open the deployed site, play a 3–4 player match on a proper map with 2 agents each, use their cards, and can follow each round's replay and who got burned.*
 
-Minimum viable product — matches PROJECT.md's Active requirements almost exactly; nothing here should be cut further without renegotiating Core Value.
+### Launch With (v1.1)
 
-- [ ] Home page (create / join-by-code / join-from-public-list / deckbuilder entry) — front door, nothing else is reachable without it
-- [ ] Deckbuilder with live legality feedback and starter presets — required before a match can start with a non-default loadout
-- [ ] Lobby: join code, seat list, ready-up (≥50% threshold), host kick + size toggle, countdown-to-start
-- [ ] Solo mode (AI auto-fill of empty seats)
-- [ ] In-lobby chat (flavor prompts + free text)
-- [ ] In-match UI: node-graph map, secret order assignment, "orders submitted" locking indicator, resolution report step-through, round history/log, Burn Track panel
-- [ ] In-game chat (flavor prompts + free text)
-- [ ] Match-end / result screen
-- [ ] Local-storage persistence for player name and saved decks
+Everything in the Table Stakes section above — all eight target features are load-bearing for the stated "done" condition; none can slip without directly reproducing a symptom the 2026-09-14 playtest already flagged as broken:
+
+- [ ] Full order composer (all actions/cards, cost/cooldown/availability shown) — the playtest's #1 blocking gap
+- [ ] Own-status panel (Intel, loadout w/ cooldowns, silencers, safehouse, traps, decoys)
+- [ ] Signals log (§10 information drip)
+- [ ] Roster (alive/burned, every player) + every player's Burn Track — the playtest's #2 blocking gap
+- [ ] Animated, skippable, fog-bound resolution replay
+- [ ] Spectator view for eliminated players (own fog only)
+- [ ] Host lobby settings, server-enforced
+- [ ] FFA-16 and FFA-18 maps
+- [ ] Declassified-dossier visual redesign (applied last, per dependency notes)
+- [ ] `apps/web` deployed to Vercel, linked to live `apps/party`
 
 ### Add After Validation (v1.x)
 
-Features to add once the core loop (home → lobby → full 14-round match → result) is proven to work end-to-end with a real group.
+Not part of v1.1 scope per PROJECT.md's Out of Scope, but flagged by this research as natural next steps once the above ships and is playtested again:
 
-- [ ] Post-round "what you learned" deduction digest (differentiator, layers cleanly on top of the resolution report once that's solid)
-- [ ] Archetype-aware deckbuilder hints / narrative build feedback
-- [ ] AI personality readout in the lobby seat list (pure presentation layer, cheap to add once bot integration is confirmed working end-to-end in the UI)
-- [ ] Deeper CRT/teletype theming pass across lobby and deckbuilder chrome (start functional, add flavor once the loop works)
+- [ ] "What they know about me" unifying framing across roster/Burn Track/signals (the Differentiator above) — worth doing once the raw panels exist and a second playtest shows whether the connection needs to be made explicit
+- [ ] Unanimous pause flow (explicitly deselected this milestone; round timer is the interim mitigation) — revisit if the new 4-action, shared-Intel composer proves too slow under a timer in practice
+- [ ] High-contrast theme (explicitly deselected this milestone) — revisit once the declassified-dossier redesign's baseline contrast is measured against WCAG 2.1 AA
 
 ### Future Consideration (v2+)
 
-Features to defer until this milestone's core loop is validated and, in most cases, until accounts exist.
+- [ ] Per-seat bot difficulty/personality picker (explicitly deselected this milestone)
+- [ ] Audio and interactive tutorial (`plan.md` Phase 7, not in this milestone)
+- [ ] Searchable/filterable long-form combat log beyond the existing round-history drawer pattern (Anti-Feature above unless built carefully on top of already-filtered stored views)
 
-- [ ] Accounts / login, and anything that depends on them (cross-device deck sync, shareable named presets, skill-based matchmaking)
-- [ ] Mobile-optimized touch layout for the match screen
-- [ ] Voice chat
-- [ ] Moderation/reporting system beyond host-kick
+---
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Node-graph map + secret order assignment | HIGH | HIGH | P1 |
-| Lobby (code, seats, ready-up, host controls) | HIGH | MEDIUM | P1 |
-| Deckbuilder core (build/edit, validation) | HIGH | MEDIUM | P1 |
-| Simultaneous resolution report / step-through | HIGH | MEDIUM | P1 |
-| "Orders submitted" locking indicator | HIGH | LOW-MEDIUM | P1 |
-| AI auto-fill / solo mode | HIGH | LOW (bot exists) | P1 |
-| Match-end / result screen | HIGH | LOW | P1 |
-| Lobby + in-match chat | MEDIUM | LOW-MEDIUM | P1 |
-| Public open-lobby browser | MEDIUM | MEDIUM | P1 (scoped requirement, but see dependency note on lobby index) |
-| Burn Track panel | MEDIUM | LOW-MEDIUM | P1 |
-| Deckbuilder budget/constraint visualizer | HIGH | MEDIUM | P2 |
-| Post-round deduction digest | MEDIUM | MEDIUM-HIGH | P2 |
-| Archetype hints in deckbuilder | MEDIUM | MEDIUM | P2 |
-| AI personality readout in lobby | LOW-MEDIUM | LOW | P2 |
-| Full CRT theming across all screens | LOW-MEDIUM | MEDIUM | P3 |
+| Full order composer (all actions/cards) | HIGH | HIGH | P1 |
+| Own-status panel | HIGH | LOW-MEDIUM | P1 |
+| Signals log | HIGH | MEDIUM | P1 |
+| Roster (alive/burned) + all Burn Tracks | HIGH | LOW | P1 |
+| Resolution replay (animated, skippable) | HIGH | HIGH | P1 |
+| Spectator view | MEDIUM | MEDIUM | P1 |
+| Host lobby settings | MEDIUM | MEDIUM | P1 |
+| FFA-16 / FFA-18 maps | MEDIUM | MEDIUM | P1 |
+| Declassified-dossier visual redesign | MEDIUM | MEDIUM-HIGH | P1 |
+| Vercel deployment | HIGH (blocks verification) | LOW-MEDIUM (unknown env blockers) | P1 |
+| "What they know about me" unifying framing | MEDIUM | LOW | P2 |
+| Redaction-bar-as-fog-grading visual metaphor | MEDIUM | MEDIUM | P2 |
+| Burn Track / "burned" terminology fix | LOW-MEDIUM | LOW | P2 |
 
-**Priority key:**
-- P1: Must have for launch
-- P2: Should have, add when possible
-- P3: Nice to have, future consideration
+All P1 items are already committed Active requirements in PROJECT.md — this matrix confirms none of them are safely descopable without reproducing the milestone's own trigger condition, and orders the two P2 items as cheap, high-leverage additions if time remains after P1.
 
-## Competitor Feature Analysis
+---
 
-| Feature | Two Spies (mobile) | webDiplomacy / RoboRally-style apps | Coup web clones / Board Game Arena | Our Approach |
-|---------|--------------------|--------------------------------------|--------------------------------------|--------------|
-| Join flow | Friend code only, no lobby browser at launch (matchmaking added later) | Public open-game lists, join by browsing | 6-digit code + BGA's dual manual/automatic table flow | Both: private join code/link AND public open-lobby browser (per explicit requirement) |
-| Player count | 1v1 only | Varies, often 7 (classic Diplomacy) | 2-8 | 1-4, host-configured, any seat can be AI |
-| Simultaneous reveal | N/A (no lobby-scale bluffing/reveal apparatus per design doc) | Reveal-all-at-once report after adjudication | Sequential/hidden-role reveal on action | Fixed-priority resolution report, step-through, per GAME_DESIGN.md §7.2 |
-| Deckbuilding | None — fixed ability set | N/A | N/A (fixed roles) | 10-card loadout with live legality feedback — this is a genuine point of differentiation, no direct comparable in the hidden-movement space |
-| AI opponents | None at launch (PvP or friend-code only) | N/A | Some clones offer basic bots | 5 named personalities, difficulty-tiered, already built — surface this visibly in the UI as a differentiator |
-| Host moderation | N/A (1v1) | Game-admin tools, more heavyweight (multi-week games) | Basic kick in some clones | Kick + auto-AI-fill, lightweight, matches session-length (single sitting) rather than Diplomacy's multi-day cadence |
+## Competitor / Reference-Game Feature Analysis
+
+| Feature Area | Closest Reference(s) | How They Do It | Berlin 1988's Approach |
+|---------|--------------|--------------|--------------|
+| Ability + target selection | Hearthstone, Slay the Spire, Into the Breach | Select ability/card → valid targets highlight, invalid dim → commit | Same two-step pattern, but must additionally sequence two agents against one shared Intel pool via `viewForOrdering()` — no single reference game combines multi-unit selection with a shared resource pool this way |
+| Deduction log / clue trail | Scotland Yard (paper log, app-replaced), Fury of Dracula (face-down trail cards + requested digital log), Specter Ops (private coded movement sheet) | Persistent, re-readable, round-grouped trail; never an ephemeral toast | Persistent signals log grouped by round, matching `PlayerView.signals`; must additionally surface symmetric Burn Tracks, which none of these physical-game ports need to solve digitally |
+| Status/roster without leaking hidden info | Among Us (alive/dead/ghost state, kill feed abstraction), general shooter kill feeds (killer+victim+weapon, post-hoc only) | Show binary alive/dead state broadly; never show ongoing hidden position | Show alive/burned + Burn Track, gated by the same strike-noise grading `projectView()` already applies — stricter than a typical kill feed because "how" and "where" must stay fog-graded per event, not just "who" |
+| Simultaneous-turn replay | Frozen Synapse (single-button replay of a fixed simulated window), webDiplomacy/Backstabbr (rules-resolved diff, not an animated timeline) | Frozen Synapse is the strongest precedent for an on-demand, replayable simultaneous-resolution window; Diplomacy tooling is comparatively text/diff-based | Animated, skippable, ~700ms/beat timeline (already speced in ARCHITECTURE.md §9) closer to Frozen Synapse than to Diplomacy tooling, but must additionally respect per-viewer fog grading, which neither reference game needs (both are either full-information or turn-based-visible) |
+| Spectating after elimination | Among Us (omniscient ghost mode) | Full-map, no-restriction vision once eliminated, since the game is functionally over for that player | Explicitly rejected — GAME_DESIGN.md §8.1 keeps eliminated players locked to their own last-known fog entitlement, because other players' secrets still matter after one player is out |
+| Host lobby settings | Board Game Arena (configure before opening table; lobby listing shows non-default options; presets like "friendly mode" plus itemized toggles) | Preset-plus-toggle hybrid, visible pre-join | Same hybrid approach fits GAME_DESIGN.md §2's settings table (which already reads like BGA's preset/toggle split: Teams FFA/2v2 as a preset-like choice, individual sliders for timer/round-limit/dossiers) |
+| Diegetic document styling | Papers Please, Orwell, Phantom Doctrine (in-fiction documents/case files, high immersion, needs careful information hierarchy underneath) | Full diegetic skin, with real risk of hurting scannability of dense data | Reserve diegetic (manila/typewriter/stamp) treatment for headers/labels/stamps; keep body text and dense data (loadout grid, signals log, Intel/cooldown numbers) on a plain legible face — matches this project's own established pattern of theming the CRT look as swappable tokens rather than universally applying it |
+
+---
 
 ## Sources
 
-- [Two Spies - App Store](https://apps.apple.com/us/app/two-spies/id1466304408)
-- [Two Spies FAQ — playspies.com](https://playspies.com/faq)
-- [iCoup / online Coup clones — general web search aggregation](https://coupgame.com/)
-- [Coup Multiplayer Online Game (GitHub)](https://github.com/SZZZhang/Coup-Multiplayer-Online-Game)
-- [webDiplomacy — orderinterface.php (GitHub)](https://github.com/kestasjk/webDiplomacy/blob/master/board/orders/orderinterface.php)
-- [How exactly does one resolve orders simultaneously? — BoardGameGeek](https://boardgamegeek.com/thread/471670/how-exactly-does-one-resolve-orders-simultaneously)
-- [Board Game Arena — New lobby update forum thread](https://forum.boardgamearena.com/viewtopic.php?t=28095&start=140)
-- [Board Game Arena — Create table for others but you](https://forum.boardgamearena.com/viewtopic.php?t=30100)
-- [Deckbuilder UI Design: Best Practices for Card Games](https://www.gunslingersrevenge.com/posts/development/deckbuilder-ui-design-best-practices.html)
-- [The Card Games UI Design of Fairtravel Battle — GDKeys](https://gdkeys.com/the-card-games-ui-design-of-fairtravel-battle/)
-- [Simulating Simultaneous Movement — Board Game Designers Forum](https://www.bgdf.com/forum/game-creation/mechanics/simulating-simultaneous-movement)
-- [Simultaneous Turns — rasie1's blog](https://kvachev.com/blog/posts/simultaneous-turns/)
-- [PartyKit — official site](https://www.partykit.io/)
-- [PartyKit templates — chat-room README (GitHub)](https://github.com/partykit/templates/blob/main/templates/chat-room/README.md)
-- [The Ability To Kick Players... — Jackbox Games blog](https://www.jackboxgames.com/blog/the-ability-to-kick-players-and-other-new-features-coming-to-party-pack-9)
-- [How does Moderation work? — Jackbox Support](https://support.jackboxgames.com/hc/en-us/articles/15794773430295-How-does-Moderation-work)
-- Internal: `/Users/maxmay/Documents/GitHub/Berlin1988/docs/GAME_DESIGN.md` (round structure §7, resolution priority §7.2, Burn Track §6.3, loadout construction §6)
-- Internal: `/Users/maxmay/Documents/GitHub/Berlin1988/.planning/PROJECT.md` (Active requirements, Key Decisions, Out of Scope)
+Confidence per the project's own classify-confidence seam: MEDIUM = cross-checked against genre knowledge and corroborated by at least one web source; LOW = single unverified web source or genre-knowledge-only claim with no strong corroborating source found. No HIGH-confidence external sources were found for this domain (no official design-pattern documentation exists for most of these mechanics); HIGH confidence in this file is reserved for direct citations of this repo's own `docs/GAME_DESIGN.md` and `docs/ARCHITECTURE.md`.
+
+- [Into the Breach — Game UI Database](https://www.gameuidatabase.com/gameData.php?id=483) — MEDIUM
+- [Into the Breach & Enemy Intentions — Atomic Bob-Omb](https://atomicbobomb.home.blog/2020/05/17/into-the-breach-enemy-intentions/) — MEDIUM
+- [Frozen Synapse — Wikipedia](https://en.wikipedia.org/wiki/Frozen_Synapse) — MEDIUM
+- [Frozen Synapse Review — Calm Down, Tom](https://calmdowntom.com/2011/06/frozen-synapse-review-pc/) — MEDIUM
+- [Two Spies — Tips, playspies.com](https://playspies.com/tips) and [FAQ](https://playspies.com/faq) — MEDIUM
+- [Scotland Yard (board game) — Wikipedia](https://en.wikipedia.org/wiki/Scotland_Yard_(board_game)) — MEDIUM
+- [Scotland Yard Master — App Store](https://apps.apple.com/us/app/scotland-yard-master/id686943176) — MEDIUM
+- [Fury of Dracula: Digital Edition — Immortal Update, Nomad Games](https://nomadgames.co.uk/blog/fury-immortal-update) — MEDIUM
+- [Fury of Dracula App | boardgamegeek thread](https://boardgamegeek.com/thread/1469197/app) — MEDIUM
+- [Specter Ops — BoardGameGeek](https://boardgamegeek.com/boardgame/155624/specter-ops) — MEDIUM
+- [Specter Ops Board Game Guide — Dice n Board](https://dicenboard.com/game-guides/specter-ops-board-game-guide/) — MEDIUM
+- [Among Us — Ghost, Fandom wiki](https://among-us.fandom.com/wiki/Ghost) — MEDIUM
+- [Among Us Ghost Guide — Theria Games](https://theriagames.com/guide/among-us-ghost-guide/) — MEDIUM
+- [Kill Feed (Concept) — Giant Bomb](https://giantbomb.com/wiki/Concepts/Kill_Feed) — LOW
+- [webDiplomacy orderinterface.php — GitHub](https://github.com/kestasjk/webDiplomacy/blob/master/board/orders/orderinterface.php) — LOW
+- [DATC Tests — webDiplomacy](https://webdiplomacy.net/datc.php) — LOW
+- [Board Game Arena forum — Automatic lobby and Special settings](https://forum.boardgamearena.com/viewtopic.php?t=20344) — MEDIUM
+- [Options and preferences: gameoptions.json — BGA docs](https://en.doc.boardgamearena.com/Options_and_preferences:_gameoptions.json,_gamepreferences.json) — MEDIUM
+- [Diegetic and Non-Diegetic UI in Games — Nasty Rodent](https://nastyrodent.com/diegetic-and-non-diegetic-ui/) — LOW
+- [Papers, Please and Non-Diegetic Morality — Dissecting Game Design](https://dissectinggamedesign.substack.com/p/papers-please-and-non-diegetic-morality) — LOW
+- [Phantom Doctrine — Wikipedia](https://en.wikipedia.org/wiki/Phantom_Doctrine) — LOW
+- [#06 Fonts and Accessibility — Badger Tactics devlog](https://mugule.itch.io/badgertactics/devlog/1657820/06-fonts-and-accessibility) — LOW
+- [Typography and Usability in Game Design — Katelyn Lindsey](https://dtc-wsuv.org/klindsey17/typographyFinal/) — LOW
+- This repo: `docs/GAME_DESIGN.md`, `docs/ARCHITECTURE.md`, `plan.md`, `.planning/PROJECT.md` — HIGH (primary source for all internal constraints, existing data-model fields, and already-made design decisions cited throughout)
 
 ---
-*Feature research for: realtime multiplayer hidden-movement board game web app (lobby, deckbuilder, in-match UI)*
-*Researched: 2026-08-18*
+*Feature research for: Berlin 1988 v1.1 "Gameplay and UI Refinement" — new in-match UX surfaces*
+*Researched: 2026-09-15*

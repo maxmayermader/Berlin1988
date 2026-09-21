@@ -3,6 +3,7 @@ import type { PlayerView } from './view.js';
 import type { Action } from './orders.js';
 import { cardId, nodeId } from './ids.js';
 import { FLAVOR_PROMPTS } from './prompts.js';
+import { SETTINGS_BOUNDS, type LobbySettings } from './settings.js';
 
 /**
  * The wire contract between apps/web and apps/party. Zod schemas are the
@@ -88,6 +89,38 @@ export const chatMessageSchema = z.strictObject({
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
+/**
+ * The host's lobby settings on the wire. Every bound here is read from
+ * SETTINGS_BOUNDS rather than typed as a literal, so the wire schema, the
+ * server's `invalidSettingsField` check and the client's own controls can
+ * never drift apart — the schema is defence in depth for the server check,
+ * not a second, independently-maintained copy of the rule (the SET_SEAT_COUNT
+ * precedent above).
+ *
+ * Annotated `z.ZodType<LobbySettings>` so adding a field to LobbySettings
+ * without adding it here is a compile error.
+ */
+export const lobbySettingsSchema: z.ZodType<LobbySettings> = z.strictObject({
+  agentsPerPlayer: z.union([z.literal(1), z.literal(2)]),
+  roundTimerSeconds: z
+    .number()
+    .int()
+    .min(SETTINGS_BOUNDS.roundTimerSeconds.min)
+    .max(SETTINGS_BOUNDS.roundTimerSeconds.max)
+    .nullable(),
+  roundLimit: z
+    .number()
+    .int()
+    .min(SETTINGS_BOUNDS.roundLimit.min)
+    .max(SETTINGS_BOUNDS.roundLimit.max),
+  blockadeMode: z.enum(SETTINGS_BOUNDS.blockadeMode),
+  dossierCount: z
+    .number()
+    .int()
+    .min(SETTINGS_BOUNDS.dossierCount.min)
+    .max(SETTINGS_BOUNDS.dossierCount.max),
+});
+
 export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('CREATE'),
@@ -134,6 +167,16 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     // connection binding (apps/party/src/auth.ts seatFor), never trusted
     // from the message body.
     count: z.number().int().min(1).max(4),
+  }),
+  z.object({
+    type: z.literal('SET_SETTINGS'),
+    // Whole-object replace, not a per-field patch: the host's panel always
+    // holds a complete LobbySettings, and a partial patch would make "which
+    // fields did this frame intend to change" a question the handler has to
+    // answer before it can validate anything. Carries no identity field, for
+    // the same reason SET_SEAT_COUNT does not — host authority is resolved
+    // from the connection binding, never trusted from the body.
+    settings: lobbySettingsSchema,
   }),
   z.object({
     type: z.literal('KICK'),
@@ -256,6 +299,12 @@ export const lobbySnapshotSchema = z.object({
    *  countdown is running. Server-authoritative — clients render from this
    *  value alone and never recompute the >=50% threshold themselves. */
   startsAt: z.number().nullable(),
+  /** The host's current match settings, read-only for everyone but the host
+   *  (LOBBY-13). Public by construction: every field is a lobby option the
+   *  host chose, none is derived from GameState, and all four categories of
+   *  hidden state (positions, safehouse, traps, cooldowns) remain
+   *  unrepresentable here. */
+  settings: lobbySettingsSchema,
 });
 export type LobbySnapshot = z.infer<typeof lobbySnapshotSchema>;
 
@@ -387,6 +436,16 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
     // count, exactly how SET_READY already signals success with no ack of
     // its own. Only the rejection needs a dedicated message, matching the
     // LOADOUT_REJECTED precedent.
+    message: z.string(),
+  }),
+  z.object({
+    type: z.literal('SET_SETTINGS_REJECTED'),
+    // Modelled on SET_SEAT_COUNT_REJECTED: no ack exists for the success
+    // path either — the host learns the change landed from the next
+    // ROOM_STATE, whose snapshot carries the new settings. `field` names the
+    // offending option so the panel can mark that one control rather than
+    // showing a bare banner (LOBBY-14).
+    field: z.string().nullable(),
     message: z.string(),
   }),
   z.object({

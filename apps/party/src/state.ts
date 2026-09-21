@@ -1,4 +1,4 @@
-import { SECTORS } from '@berlin/shared';
+import { defaultDossierCount, invalidSettingsField, SECTORS } from '@berlin/shared';
 import type {
   AgentOrder,
   CardId,
@@ -6,6 +6,7 @@ import type {
   Difficulty,
   GameState,
   LobbySeat,
+  LobbySettings,
   LobbySnapshot,
   PersonalityId,
   Sector,
@@ -116,6 +117,11 @@ export interface RoomState {
    *  message lands in and how the log is trimmed. Never derived into
    *  toSnapshot(); chat travels on its own CHAT_MESSAGE/CHAT_HISTORY frames. */
   chat: { readonly LOBBY: ChatMessage[]; readonly MATCH: ChatMessage[] };
+  /** The host's match settings (LOBBY-08..LOBBY-12). Mutable only in LOBBY,
+   *  via setSettings below; read once by settings.ts's buildMatchConfig at
+   *  the LOADOUT -> IN_GAME transition, after which the match's own
+   *  MatchSettings is the authority and this field no longer matters. */
+  settings: LobbySettings;
   /** Every seat currently inside its post-disconnect grace window (D-07,
    *  Task 2) — apps/party/src/timers.ts owns scheduleDisconnectGrace/
    *  clearDisconnectGrace/expiredGraceSeats, the sole authority for this
@@ -305,7 +311,68 @@ export function setSeatCount(state: RoomState, count: number, now: number): Room
           ),
         ];
 
-  return recomputeCountdown({ ...state, seats }, now, COUNTDOWN_DURATION_MS);
+  // The dossier count is tuned per player count (MAP-04), so a resize moves
+  // it to the new count's tuned value — but ONLY while it still sits at the
+  // old count's default. The moment a host sets a dossier count of their
+  // own, that is a deliberate choice and a later resize must not quietly
+  // overwrite it. The host sees the current value in the settings panel
+  // either way, so nothing here is hidden from them.
+  const settings =
+    state.settings.dossierCount === defaultDossierCount(state.seats.length)
+      ? { ...state.settings, dossierCount: defaultDossierCount(count) }
+      : state.settings;
+
+  return recomputeCountdown({ ...state, seats, settings }, now, COUNTDOWN_DURATION_MS);
+}
+
+/** Field-by-field equality over the five host-settable options. Explicit
+ *  rather than JSON.stringify so adding a LobbySettings field without
+ *  extending this comparison is a compile error, not a silently-missed
+ *  difference that would make a real change look like a no-op. */
+export function sameSettings(a: LobbySettings, b: LobbySettings): boolean {
+  return (
+    a.agentsPerPlayer === b.agentsPerPlayer &&
+    a.roundTimerSeconds === b.roundTimerSeconds &&
+    a.roundLimit === b.roundLimit &&
+    a.blockadeMode === b.blockadeMode &&
+    a.dossierCount === b.dossierCount
+  );
+}
+
+/**
+ * The single server-side authority for whether a settings change is legal
+ * (LOBBY-14). Phase is checked here rather than in the handler for the same
+ * reason canSetSeatCount does it: one predicate both the handler and any
+ * future caller consult. Deliberately LOBBY-only — unlike seat count, which
+ * also admits LOADOUT: once loadouts are being built against an agent count
+ * and a round limit, changing them out from under a half-built deck is a
+ * worse outcome than making the host wait for the next lobby.
+ */
+export function canSetSettings(state: RoomState, settings: LobbySettings): boolean {
+  return state.phase === 'LOBBY' && invalidSettingsField(settings) === null;
+}
+
+/**
+ * Applies the host's settings and clears every seat's ready flag (LOBBY-15),
+ * cancelling any running start countdown as a consequence — nobody should
+ * start a match under terms they readied up for and the host then changed.
+ *
+ * Returns `state` unchanged by reference when the change is illegal or the
+ * settings are already identical, so a repeated identical frame is a genuine
+ * no-op that room.ts's reference-distinct broadcast guard turns into "no
+ * duplicate ROOM_STATE" — and, importantly, does not clear ready state. A
+ * host nudging a control back to the value it already had must not reset
+ * everyone's readiness.
+ */
+export function setSettings(state: RoomState, settings: LobbySettings, now: number): RoomState {
+  if (!canSetSettings(state, settings)) return state;
+  if (sameSettings(state.settings, settings)) return state;
+
+  const cleared = state.seats.map((seat) => (seat.ready ? { ...seat, ready: false } : seat));
+  // recomputeCountdown after clearing, not before: with every seat un-readied
+  // the ratio is 0, so this is what actually cancels a countdown already in
+  // flight rather than leaving startsAt pointing at a match nobody agreed to.
+  return recomputeCountdown({ ...state, settings, seats: cleared }, now, COUNTDOWN_DURATION_MS);
 }
 
 /**
@@ -378,6 +445,7 @@ export function toSnapshot(state: RoomState): LobbySnapshot {
     phase: state.phase,
     hostPlayerId: state.hostPlayerId,
     startsAt: state.startsAt,
+    settings: state.settings,
     seats: state.seats.map((seat) => ({
       index: seat.index,
       playerId: seat.playerId,

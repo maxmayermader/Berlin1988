@@ -1,3 +1,4 @@
+import { DEFAULT_LOBBY_SETTINGS } from '@berlin/shared';
 import { seedRng } from '@berlin/engine';
 import type { AgentId, PersonalityId, ServerMessage } from '@berlin/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -45,6 +46,7 @@ function fixtureRoom(overrides: Partial<RoomState> = {}): RoomState {
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    settings: DEFAULT_LOBBY_SETTINGS,
     disconnectedSeats: [],
     ...overrides,
   };

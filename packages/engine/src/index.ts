@@ -22,6 +22,12 @@ export { validateLoadout, budgetPointsOf, consumablePassivesIn } from './loadout
 export { hasPassive, findPassive } from './passives.js';
 export { isReady, remaining as cooldownRemaining } from './cooldowns.js';
 export { consumesAction, actionsUsed, actionBudget, maxFreeActions } from './actionBudget.js';
+export {
+  actionIntelCost,
+  costOfOrder,
+  intelAvailableFor,
+  viewForComposing,
+} from './actionCost.js';
 export { seedRng, next as rngNext, nextInt, chance, shuffled } from './rng.js';
 
 export * from './graph.js';

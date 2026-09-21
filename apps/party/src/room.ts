@@ -24,6 +24,7 @@ import {
   handleSetCodename,
   handleSetReady,
   handleSetSeatCount,
+  handleSetSettings,
   handleSubmitLoadout,
   handleSubmitOrder,
 } from './handlers.js';
@@ -195,6 +196,26 @@ export default class MatchRoom implements Party.Server {
         // Keeps the directory's seatsTotal in sync with a host-driven
         // resize, exactly like every other seat/phase-affecting branch.
         await this.pushDirectory(result.state);
+      }
+      return;
+    }
+
+    if (message.type === 'SET_SETTINGS') {
+      // Same reference-identity broadcast guard as SET_SEAT_COUNT above:
+      // setSettings returns the exact input state for an illegal or
+      // already-applied change, so a repeated identical frame fires no
+      // duplicate ROOM_STATE — and, critically, never clears ready state.
+      // No pushDirectory: none of the directory's four fields is derived
+      // from match settings.
+      const before = this.state;
+      const result = handleSetSettings(this.state, message.settings, sender.id, now);
+      await this.persist(result.state);
+      if (result.toSender) sendTo(sender, result.toSender);
+      if (result.state && result.state !== before) {
+        // syncAlarm because clearing ready state cancels a running start
+        // countdown — startsAt is one of alarmTarget()'s candidates.
+        await this.syncAlarm(result.state);
+        sendLobby(this.room, result.state);
       }
       return;
     }

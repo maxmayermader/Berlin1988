@@ -1,12 +1,15 @@
 import { DEFAULT_RULESET, submitOrder, validateLoadout } from '@berlin/engine';
 import {
   agentId as toAgentId,
+  DEFAULT_LOBBY_SETTINGS,
+  invalidSettingsField,
   playerId as toPlayerId,
   promptText,
   type AgentOrder,
   type ChatMessage,
   type ChatScope,
   type ClientMessage,
+  type LobbySettings,
   type RngState,
   type ServerMessage,
 } from '@berlin/shared';
@@ -24,6 +27,7 @@ import {
   setLoadout,
   setReady,
   setSeatCount,
+  setSettings,
   vacateSeat,
   type RoomState,
 } from './state.js';
@@ -105,6 +109,7 @@ export function handleCreate(
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    settings: DEFAULT_LOBBY_SETTINGS,
     disconnectedSeats: [],
   };
 
@@ -311,6 +316,75 @@ export function handleSetSeatCount(
   }
 
   return { state: setSeatCount(state, count, now), toSender: null };
+}
+
+export interface SetSettingsResult {
+  state: RoomState | null;
+  /** Null when there is no seat binding for this connection, and on the
+   *  accepted path — success is signalled by the next ROOM_STATE carrying
+   *  the new settings, exactly as SET_SEAT_COUNT signals success. */
+  toSender: ServerMessage | null;
+}
+
+/**
+ * SET_SETTINGS — host-only (apps/party/CLAUDE.md rule 5), following
+ * handleSetSeatCount's pattern exactly: resolve the acting seat via
+ * seatFor(connectionId), compare against state.hostPlayerId, refuse with an
+ * explicit reply rather than a silent no-op.
+ *
+ * The range check runs server-side through `invalidSettingsField` even
+ * though `lobbySettingsSchema` already bounded every field on the wire. That
+ * is not redundancy for its own sake: the schema protects against a
+ * malformed frame, this protects against the bounds table and the schema
+ * drifting apart, and LOBBY-14 asks for the server — not the wire format —
+ * to be the thing that refuses an out-of-range value.
+ */
+export function handleSetSettings(
+  state: RoomState | null,
+  settings: LobbySettings,
+  connectionId: string,
+  now: number,
+): SetSettingsResult {
+  if (!state) return { state: null, toSender: null };
+
+  const seat = seatFor(state, connectionId);
+  if (!seat || !seat.playerId) return { state, toSender: null };
+
+  if (seat.playerId !== state.hostPlayerId) {
+    return {
+      state,
+      toSender: {
+        type: 'SET_SETTINGS_REJECTED',
+        field: null,
+        message: 'Only the host can change match settings.',
+      },
+    };
+  }
+
+  if (state.phase !== 'LOBBY') {
+    return {
+      state,
+      toSender: {
+        type: 'SET_SETTINGS_REJECTED',
+        field: null,
+        message: 'Settings lock once the match starts.',
+      },
+    };
+  }
+
+  const bad = invalidSettingsField(settings);
+  if (bad !== null) {
+    return {
+      state,
+      toSender: {
+        type: 'SET_SETTINGS_REJECTED',
+        field: bad,
+        message: `That ${bad} value is out of range.`,
+      },
+    };
+  }
+
+  return { state: setSettings(state, settings, now), toSender: null };
 }
 
 export interface KickResult {

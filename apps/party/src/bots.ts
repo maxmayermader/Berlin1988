@@ -1,4 +1,4 @@
-import { nextInt, projectView, submitOrder } from '@berlin/engine';
+import { nextInt, projectView, submitOrder, viewForOrdering } from '@berlin/engine';
 import { createAgent, PERSONALITY_IDS } from '@berlin/ai';
 import type { AIAgent } from '@berlin/ai';
 import { playerId as toPlayerId } from '@berlin/shared';
@@ -54,13 +54,30 @@ export function fillEmptySeatsWithBots(state: RoomState, rng: RngState): RoomSta
 }
 
 /**
- * One AgentOrder per live agent of every BOT seat, decided from
- * projectView(gameState, seatId) alone — the bot is handed the projection
- * and nothing else, the same information a human in that seat would see
- * (apps/party/src/CLAUDE.md rule 5; T-1-19). Deciding is immediate;
- * releasing is scheduled (releaseAt = now + botDelayMs) — RESEARCH.md
- * Pitfall 6 is that packages/ai answers at p99 under 50ms, so an unpadded
- * bot would announce itself the instant the round opens.
+ * One AgentOrder per live agent of every BOT seat. The bot is handed a
+ * PlayerView and nothing else, the same information a human in that seat
+ * would see (apps/party/src/CLAUDE.md rule 5; T-1-19). Deciding is
+ * immediate; releasing is scheduled (releaseAt = now + botDelayMs) —
+ * RESEARCH.md Pitfall 6 is that packages/ai answers at p99 under 50ms, so
+ * an unpadded bot would announce itself the instant the round opens.
+ *
+ * The view handed to each agent comes from `viewForOrdering`, not
+ * `projectView`, and is rebuilt per agent against a `working` GameState
+ * that already carries this seat's earlier agents' orders. A seat's agents
+ * share one Intel pool, so deciding both against the same pre-spend
+ * projection produces two orders that each fit the budget and together do
+ * not (packages/engine/CLAUDE.md states this exactly). The second order
+ * then fails `submitOrder` at release time, that agent never commits, and
+ * the round can only close on the deadline — a stall that was invisible
+ * while agentsPerPlayer was hardcoded to 1 and appears the moment a host
+ * selects 2.
+ *
+ * `working` is a costing scratchpad only: `submitOrder` is pure and records
+ * into `pendingOrders` without touching the RNG, so threading it here
+ * mirrors exactly what will happen at release time without affecting the
+ * authoritative state. A rejected trial order is simply not carried
+ * forward — the bot's order still ships, and `releaseBotSubmissions`
+ * remains the single place a bot order actually reaches the real state.
  *
  * `agentCache` is owned by the caller (room.ts) and keyed by playerId, so
  * belief state persists across rounds within a match; a cache miss builds
@@ -79,14 +96,16 @@ export function decideForBotSeats(
   if (!gameState) return [];
 
   const submissions: BotSubmission[] = [];
+  let working = gameState;
+
   for (const seat of state.seats) {
     // Reads controlledBy, not kind — this is what makes a mid-match
     // AI-takeover seat (Task 3, D-08) decide orders exactly like an
     // original lobby-fill bot seat, without ever becoming one.
     if (seat.controlledBy !== 'AI' || !seat.playerId || !seat.personality) continue;
 
-    const view = projectView(gameState, toPlayerId(seat.playerId));
-    if (view.self.eliminated) continue;
+    const playerId = toPlayerId(seat.playerId);
+    if (projectView(working, playerId).self.eliminated) continue;
 
     let agent = agentCache.get(seat.playerId);
     if (!agent) {
@@ -94,10 +113,16 @@ export function decideForBotSeats(
       agentCache.set(seat.playerId, agent);
     }
 
-    for (const a of view.self.agents) {
+    // Agent order is fixed by the seat's own agents array, so two rooms
+    // replaying the same match decide in the same sequence — the Intel each
+    // agent sees depends on who decided first.
+    for (const a of working.players[seat.playerId]?.agents ?? []) {
       if (!a.alive) continue;
+      const view = viewForOrdering(working, playerId, a.id as string);
       const order = agent.decideOrder(view, a.id);
       submissions.push({ playerId: seat.playerId, order, releaseAt: now + botDelayMs(rng) });
+      const trial = submitOrder(working, playerId, order);
+      if (!trial.rejection) working = trial.state;
     }
   }
   return submissions;

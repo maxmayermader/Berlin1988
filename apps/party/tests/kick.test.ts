@@ -1,3 +1,4 @@
+import { DEFAULT_LOBBY_SETTINGS } from '@berlin/shared';
 import { clientMessageSchema } from '@berlin/shared';
 import { describe, expect, it } from 'vitest';
 import { handleKick } from '../src/handlers.js';
@@ -32,6 +33,7 @@ function fixtureState(occupiedIndexes: number[], overrides: Partial<RoomState> =
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    settings: DEFAULT_LOBBY_SETTINGS,
     disconnectedSeats: [],
     ...overrides,
   };

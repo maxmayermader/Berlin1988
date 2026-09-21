@@ -1,4 +1,5 @@
-import { createMatch, quickSettings, seedRng } from '@berlin/engine';
+import { DEFAULT_LOBBY_SETTINGS } from '@berlin/shared';
+import { createMatch, quickSettings, seedRng, submitOrder } from '@berlin/engine';
 import { PERSONALITY_IDS } from '@berlin/ai';
 import type { AIAgent } from '@berlin/ai';
 import { playerId as toPlayerId } from '@berlin/shared';
@@ -236,6 +237,14 @@ describe('apps/party wire-level fog of war (Task 3 — the phase\'s highest-prio
     const room = createTestRoom('FOGWA9');
     const host = room.connect('Vogel');
     await host.send({ type: 'CREATE', codename: 'Vogel' });
+    // "exactly one" human submission closes the round only when the seat has
+    // exactly one agent. That was the hardcoded default before Phase 6; now
+    // it is a host setting, so ask for it. Before SET_READY — a settings
+    // change clears ready state (LOBBY-15).
+    await host.send({
+      type: 'SET_SETTINGS',
+      settings: { ...DEFAULT_LOBBY_SETTINGS, agentsPerPlayer: 1 },
+    });
     await host.send({ type: 'SET_READY', ready: true });
     await room.triggerAlarm(); // countdown -> startMatch, round 1 bots decided
 
@@ -278,12 +287,12 @@ describe('apps/party/src/bots.ts decideForBotSeats / releaseBotSubmissions (Task
    *  apps/party/tests/clock.test.ts's fixtureRoomState but with BOT seats
    *  filled directly rather than through fillEmptySeatsWithBots — these
    *  tests exercise decideForBotSeats/releaseBotSubmissions in isolation. */
-  function fixture(): RoomState {
+  function fixture(agentsPerPlayer: 1 | 2 = 1): RoomState {
     const p0: PersonalityId = PERSONALITY_IDS[0]!;
     const p1: PersonalityId = PERSONALITY_IDS[1]!;
     const p2: PersonalityId = PERSONALITY_IDS[2]!;
     const settings: MatchSettings = quickSettings({
-      agentsPerPlayer: 1,
+      agentsPerPlayer,
       roundTimerSeconds: 90,
       seats: [
         { id: toPlayerId('human-1'), name: 'Vogel', faction: 'BLUE', kind: 'HUMAN', team: null },
@@ -343,6 +352,7 @@ describe('apps/party/src/bots.ts decideForBotSeats / releaseBotSubmissions (Task
       deadlineRound: null,
       botSubmissions: [],
       chat: { LOBBY: [], MATCH: [] },
+      settings: DEFAULT_LOBBY_SETTINGS,
       disconnectedSeats: [],
     };
   }
@@ -361,6 +371,57 @@ describe('apps/party/src/bots.ts decideForBotSeats / releaseBotSubmissions (Task
     expect(submittingPlayerIds).toEqual(new Set(['bot-1', 'bot-2', 'bot-3']));
     // agentsPerPlayer: 1 — exactly one order per bot seat.
     expect(submissions).toHaveLength(3);
+  });
+
+  it('produces one AgentOrder per agent when a seat has two of them', () => {
+    const submissions = decideForBotSeats(
+      fixture(2),
+      1_000_000,
+      seedRng('unit-bots-2'),
+      new Map<string, AIAgent>(),
+    );
+    expect(submissions).toHaveLength(6); // 3 bot seats x 2 agents
+    for (const playerId of ['bot-1', 'bot-2', 'bot-3']) {
+      expect(submissions.filter((s) => s.playerId === playerId)).toHaveLength(2);
+    }
+    // Every agent is ordered exactly once — a seat must not decide twice for
+    // one agent and never for the other.
+    const agentIds = submissions.map((s) => s.order.agentId as string);
+    expect(new Set(agentIds).size).toBe(agentIds.length);
+  });
+
+  it('a two-agent seat never plans two orders it cannot jointly afford', () => {
+    // The regression this locks: a seat's agents share one Intel pool, so
+    // deciding both against the same pre-spend projection yields two orders
+    // that each fit the budget and together do not. The second then fails
+    // submitOrder at release, that agent never commits, and the round can
+    // only close on the deadline — a stall invisible while agentsPerPlayer
+    // was hardcoded to 1. Replaying every submission in decision order
+    // through the engine is exactly what releaseBotSubmissions will do.
+    const state = fixture(2);
+    const submissions = decideForBotSeats(
+      state,
+      1_000_000,
+      seedRng('unit-bots-afford'),
+      new Map<string, AIAgent>(),
+    );
+
+    let working = state.gameState!;
+    for (const submission of submissions) {
+      const result = submitOrder(working, toPlayerId(submission.playerId), submission.order);
+      expect(
+        result.rejection,
+        `${submission.playerId}/${submission.order.agentId} rejected: ${result.rejection?.code}`,
+      ).toBeNull();
+      working = result.state;
+    }
+
+    // And with every bot order accepted, only the human seat is outstanding.
+    for (const playerId of ['bot-1', 'bot-2', 'bot-3']) {
+      for (const agent of working.players[playerId]!.agents) {
+        expect(working.pendingOrders[agent.id as string]).toBeDefined();
+      }
+    }
   });
 
   it("releases a submission through submitOrder — a rejected order is dropped, never force-applied", () => {

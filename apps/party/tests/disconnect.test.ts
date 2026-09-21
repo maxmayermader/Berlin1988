@@ -1,3 +1,4 @@
+import { DEFAULT_LOBBY_SETTINGS } from '@berlin/shared';
 import type { ServerMessage } from '@berlin/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearDisconnectGrace, expiredGraceSeats, scheduleDisconnectGrace } from '../src/timers.js';
@@ -42,6 +43,7 @@ function fixtureRoom(humanCount: number, matchId = 'ABCDEF'): RoomState {
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    settings: DEFAULT_LOBBY_SETTINGS,
     disconnectedSeats: [],
   };
 }

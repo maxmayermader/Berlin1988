@@ -1,4 +1,4 @@
-import type { ResolutionEvent } from '@berlin/shared';
+import type { Action, MapDefinition, NodeId, ResolutionEvent } from '@berlin/shared';
 import { CODENAME_MAX_LENGTH } from './identity.js';
 
 /**
@@ -11,6 +11,44 @@ import { CODENAME_MAX_LENGTH } from './identity.js';
  * 01-UI-SPEC.md's exact copy for a server-rejected order, with `{reason}`
  * filled from the server's own rejection message — never a raw stack trace.
  */
+/**
+ * A node's display name, from the map. Falls back to the raw id so a node
+ * the map somehow doesn't carry still renders something a player can report,
+ * rather than an empty string.
+ */
+export function nodeName(map: MapDefinition, id: NodeId): string {
+  return map.nodes.find((n) => n.id === id)?.name ?? (id as string);
+}
+
+/**
+ * One composed action in plain language, using node names rather than ids —
+ * "Strike Alexanderplatz", not "Strike alexanderplatz". Kept here with the
+ * rest of the human-readable text so the composer and the resolution log
+ * cannot drift apart (apps/web/lib/CLAUDE.md rule 5).
+ */
+export function actionText(map: MapDefinition, action: Action): string {
+  switch (action.type) {
+    case 'HOLD':
+      return 'Hold';
+    case 'MOVE':
+      return `Move to ${nodeName(map, action.to)}`;
+    case 'SPRINT':
+      return `Sprint via ${nodeName(map, action.via)} to ${nodeName(map, action.to)}`;
+    case 'WIRETAP':
+      return `Wiretap ${nodeName(map, action.target)}`;
+    case 'BRIBE':
+      return 'Bribe the informant here';
+    case 'DECOY':
+      return `Decoy at ${nodeName(map, action.target)}`;
+    case 'SAFEHOUSE':
+      return 'Establish safehouse here';
+    case 'STRIKE':
+      return `Strike ${nodeName(map, action.target)}`;
+    case 'AMBUSH':
+      return 'Set an ambush here';
+  }
+}
+
 export function orderRejectionText(reason: string): string {
   return `Your order couldn't be submitted — ${reason}. Fix it and resubmit before the timer runs out.`;
 }

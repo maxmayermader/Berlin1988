@@ -1,15 +1,24 @@
 import { consumablePassivesIn, createMatch, DEFAULT_RULESET, PHANTOM, seedRng, validateLoadout } from '@berlin/engine';
-import { playerId as toPlayerId } from '@berlin/shared';
+import { mapIdForPlayerCount, playerId as toPlayerId } from '@berlin/shared';
 import type { MatchSettings, PlayerSecrets, SeatConfig } from '@berlin/shared';
 import { fillEmptySeatsWithBots } from './bots.js';
 import type { RoomSeat, RoomState } from './state.js';
 
 /**
- * Every field this phase locks (D-01 through D-04), readable as literal
- * values at this call site rather than hidden behind a test helper's
- * defaults. `quickSettings()` in packages/engine is a reference for the
- * field set only — building the object explicitly here is what keeps
- * these decisions visible in review.
+ * Builds the match's locked MatchSettings from the room's own lobby state.
+ *
+ * The five host-settable fields (LOBBY-08..LOBBY-12) come from
+ * `state.settings`, validated on arrival by handleSetSettings and never
+ * re-derived here. The rest stay literal at this call site: `teams`,
+ * `pausesPerPlayer`, `startingIntel` and `rulesetId` have no host control
+ * because nothing in the UI or the room honors changing them yet — a
+ * control for a field nothing reads is the placebo this separation exists
+ * to prevent.
+ *
+ * `mapId` is the one derived field: MAP-03 makes the map a function of the
+ * seat count, not a host choice, and `mapIdForPlayerCount` in @berlin/shared
+ * is the single definition of that rule — the lobby calls the same function
+ * to show the host which map their current seat count selects.
  */
 export function buildMatchConfig(state: RoomState): MatchSettings {
   const seats: SeatConfig[] = state.seats.map((seat) => ({
@@ -28,15 +37,15 @@ export function buildMatchConfig(state: RoomState): MatchSettings {
 
   return {
     seats,
-    agentsPerPlayer: 1, // D-02
-    mapId: 'duel-12', // D-03 — the only key in MAPS
+    agentsPerPlayer: state.settings.agentsPerPlayer,
+    mapId: mapIdForPlayerCount(seats.length),
     teams: false,
-    roundTimerSeconds: 90, // D-04
-    pausesPerPlayer: 0, // no pause flow this phase
-    roundLimit: 14,
-    dossierCount: 2,
+    roundTimerSeconds: state.settings.roundTimerSeconds,
+    pausesPerPlayer: 0, // no pause flow yet
+    roundLimit: state.settings.roundLimit,
+    dossierCount: state.settings.dossierCount,
     startingIntel: 4,
-    blockadeMode: 'MIXED',
+    blockadeMode: state.settings.blockadeMode,
     rulesetId: 'default',
   };
 }

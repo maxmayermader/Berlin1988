@@ -1,19 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: Awaiting next milestone
-stopped_at: Phase 4 UI-SPEC approved
-last_updated: "2026-09-14T21:47:59.284Z"
-last_activity: 2026-09-14
-last_activity_desc: Milestone v1.0 completed and archived
+milestone: v1.1
+milestone_name: Gameplay and UI Refinement
+current_phase: 05
+current_phase_name: Live Deployment
+status: planning
+stopped_at: Phase 5 context gathered
+last_updated: "2026-09-19T03:11:19.744Z"
+last_activity: 2026-09-21
+last_activity_desc: Phases 6 and 7 implemented directly (host settings, FFA maps, full order composer)
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 18
-  completed_plans: 18
-current_phase: 1
-current_phase_name: Playable Skeleton
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,19 +30,39 @@ Items acknowledged and deferred at milestone close on 2026-09-14:
 | verification_gap | Phase 01 — 01-VERIFICATION.md | human_needed |
 | verification_gap | Phase 02 — 02-VERIFICATION.md | human_needed |
 
+All four are now owned by v1.1 requirements **DEPLOY-03** and **DEPLOY-04**, scheduled as Phase 10's
+closing human-verification gate against the deployed site. Phase 5 (Live Deployment) removes their
+root cause — there was never a live URL to test against.
+
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-18)
+See: .planning/PROJECT.md (updated 2026-09-14)
 
 **Core value:** A group of players (any mix of humans and AI) can go from the home page through a lobby into a complete, playable 14-round match and see a result — with no gaps in the underlying rules engine.
-**Current focus:** Phase 04 — deduction-surfaces-presentation-polish
+**Milestone:** v1.1 Gameplay and UI Refinement — Phases 5-10 (roadmap created 2026-09-18)
+**Milestone goal:** A human player can play the full game `docs/GAME_DESIGN.md` describes — every action and card usable, every clue and every burn visible — on a redesigned site deployed to Vercel that friends can join.
+**Current focus:** Phase 05 — Live Deployment (not started)
 
 ## Current Position
 
-Phase: Milestone v1.0 complete
+Phase: 05 — Live Deployment (not started)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-09-14 — Milestone v1.0 completed and archived
+Status: Phases 6 and 7 implemented ahead of Phase 5 — see the ROADMAP execution note
+Last activity: 2026-09-21 — host settings, FFA-16/FFA-18 maps, and the full order composer landed
+
+**Out-of-order note.** Phases 6 and 7 were implemented directly on 2026-09-21,
+without the discuss/plan/verify ceremony and before Phase 5. Everything was
+verified against localhost only: `pnpm typecheck` clean, 699 vitest tests
+green, 24 Playwright e2e green, and bot-vs-bot sim sweeps clean on both new
+maps. Phase 5 remains the gate for anything verified against a real
+deployment, and Phase 10's human verification still has nothing to run
+against.
+
+**Nothing is committed.** All of the above is uncommitted working-tree
+changes on `main`.
+
+**v1.1 phase order:** 5 Live Deployment → 6 Host Match Settings & Full-Size Maps → 7 Full Order Composer → 8 Own Status, Signals & Burn Visibility → 9 Resolution Replay & Spectating → 10 Declassified Dossier Redesign & Live Verification.
+Phase 8 has no data or file dependency on Phases 6-7 and may run in a parallel worktree alongside either.
 
 ## Performance Metrics
 
@@ -163,10 +184,12 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-02T23:21:40.953Z
-Stopped at: Phase 4 UI-SPEC approved
-Resume file: .planning/phases/04-deduction-surfaces-presentation-polish/04-UI-SPEC.md
+Last session: 2026-09-19T03:11:19.735Z
+Stopped at: Phase 5 context gathered
+Resume file: .planning/phases/05-live-deployment/05-CONTEXT.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first v1.1 phase with `/gsd-plan-phase 5`
+- Phase 5 needs a human in the loop: Vercel project linking/auth was unavailable to the executing agent in v1.0. Have `vercel` CLI access or a linked GitHub integration ready.
+- Set `worktree.baseRef: "head"` before the first wave of any phase running parallel executors (v1.0 lesson 2).

@@ -1,3 +1,4 @@
+import { DEFAULT_LOBBY_SETTINGS } from '@berlin/shared';
 import { consumablePassivesIn, HUNTER, OLIGARCH, PHANTOM, seedRng, SPIDER } from '@berlin/engine';
 import { DIFFICULTY_IDS, PERSONALITIES } from '@berlin/ai';
 import type { Loadout, Sector, ServerMessage } from '@berlin/shared';
@@ -57,6 +58,7 @@ function fixtureRoom(humanCount: number, matchId = 'ABCDEF'): RoomState {
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    settings: DEFAULT_LOBBY_SETTINGS,
     disconnectedSeats: [],
   };
 }
@@ -202,14 +204,54 @@ describe('apps/party/src/bots.ts decideForBotSeats seat filter', () => {
 });
 
 describe('apps/party/src/settings.ts buildMatchConfig / startMatch', () => {
-  it('buildMatchConfig locks D-01 through D-04 as literal values', () => {
-    const config = buildMatchConfig(fixtureRoom(2));
+  it("buildMatchConfig takes the host-settable fields from the room's own settings", () => {
+    // Phase 6 (LOBBY-08..LOBBY-12) replaced the D-01..D-04 literals these
+    // fields used to be. The point of the assertion is now the opposite of
+    // what it was: these five must track state.settings, not a constant.
+    const room = fixtureRoom(2);
+    const config = buildMatchConfig({
+      ...room,
+      settings: {
+        agentsPerPlayer: 1,
+        roundTimerSeconds: 45,
+        roundLimit: 9,
+        blockadeMode: 'OFF',
+        dossierCount: 4,
+      },
+    });
     expect(config.agentsPerPlayer).toBe(1);
-    expect(config.mapId).toBe('duel-12');
-    expect(config.roundTimerSeconds).toBe(90);
-    expect(config.roundLimit).toBe(14);
+    expect(config.roundTimerSeconds).toBe(45);
+    expect(config.roundLimit).toBe(9);
+    expect(config.blockadeMode).toBe('OFF');
+    expect(config.dossierCount).toBe(4);
+  });
+
+  it('buildMatchConfig still locks the fields no host control exposes', () => {
+    const config = buildMatchConfig(fixtureRoom(2));
     expect(config.teams).toBe(false);
     expect(config.pausesPerPlayer).toBe(0);
+    expect(config.startingIntel).toBe(4);
+    expect(config.rulesetId).toBe('default');
+  });
+
+  it('buildMatchConfig derives mapId from the seat count, not from settings (MAP-03)', () => {
+    // Sized by the seats array, not by how many of them are human — a lobby
+    // that starts with open seats fills them with bots and still plays the
+    // map its seat count selects.
+    const sized = (count: number): RoomState => ({
+      ...fixtureRoom(1),
+      seats: emptySeats(count).map((seat, i) => ({
+        ...seat,
+        playerId: `p${i}`,
+        codename: `Seat ${i}`,
+        kind: 'HUMAN' as const,
+        controlledBy: 'HUMAN' as const,
+      })),
+    });
+    expect(buildMatchConfig(sized(1)).mapId).toBe('duel-12');
+    expect(buildMatchConfig(sized(2)).mapId).toBe('duel-12');
+    expect(buildMatchConfig(sized(3)).mapId).toBe('ffa-16');
+    expect(buildMatchConfig(sized(4)).mapId).toBe('ffa-18');
   });
 
   it('buildMatchConfig produces one SeatConfig per room seat with distinct ids and factions', () => {

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { chooseAction, createSoloLobby, readyAndStart } from './helpers.js';
 
 /**
  * Phase 1 Success Criterion 5, client half: a full match against three bots
@@ -28,11 +29,8 @@ test.describe('Result — a full match reaches the result screen', () => {
   }) => {
     test.setTimeout(300_000);
 
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Create Game' }).click();
-    await page.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
-    await page.getByRole('button', { name: 'Ready Up' }).click();
-    await page.waitForURL(/\/match\/[A-Z0-9]{6}$/, { timeout: 30_000 });
+    await createSoloLobby(page);
+    await readyAndStart(page);
 
     // ResultScreen renders the only <h1> on this route (StepThrough and the
     // board use <h2>), so it's a stable, unambiguous "the match ended" signal.
@@ -47,8 +45,8 @@ test.describe('Result — a full match reaches the result screen', () => {
       if (await resultHeadline.isVisible().catch(() => false)) break;
 
       if (await submitButton.isVisible().catch(() => false)) {
-        await page.getByRole('button', { name: 'Hold' }).click();
-        await page.getByRole('button', { name: 'Hold' }).click();
+        await chooseAction(page, 'Hold');
+        await chooseAction(page, 'Hold');
         await submitButton.click();
       }
 

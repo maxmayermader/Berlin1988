@@ -1,3 +1,4 @@
+import { DEFAULT_LOBBY_SETTINGS } from '@berlin/shared';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { seedRng } from '@berlin/engine';
@@ -44,6 +45,7 @@ function fixtureState(occupiedIndexes: number[], overrides: Partial<RoomState> =
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    settings: DEFAULT_LOBBY_SETTINGS,
     disconnectedSeats: [],
     ...overrides,
   };
@@ -259,8 +261,12 @@ describe('apps/party/src/state.ts toSnapshot (pure) — chat never enters the pu
       at: 0,
     });
     const snapshot = toSnapshot(state);
+    // `settings` joined this set deliberately in Phase 6 (LOBBY-13): the
+    // host's match options are public by construction and every player is
+    // entitled to see them. The guard's job is unchanged — any *further*
+    // key appearing here without a deliberate edit to this list is a leak.
     expect(Object.keys(snapshot).sort()).toEqual(
-      ['code', 'phase', 'hostPlayerId', 'seats', 'startsAt'].sort(),
+      ['code', 'phase', 'hostPlayerId', 'seats', 'startsAt', 'settings'].sort(),
     );
   });
 });

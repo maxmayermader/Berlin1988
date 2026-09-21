@@ -15,7 +15,7 @@ import {
   quickSettings,
   scoreOf,
 } from '@berlin/engine';
-import { playerId } from '@berlin/shared';
+import { mapIdForPlayerCount, playerId } from '@berlin/shared';
 import { createAgent, type AIAgent } from '../src/index.js';
 
 /** One headless bot-vs-bot match. No UI, no network, no I/O in the hot loop. */
@@ -67,7 +67,15 @@ export function runMatch(
     team: null,
   }));
 
-  const settings = quickSettings({ seats: seatConfigs, ...overrides });
+  // The map follows the seat count the same way a real match's does
+  // (MAP-03) — a 3- or 4-player sweep on the duel map would be measuring a
+  // board nobody will ever play those counts on. An explicit `mapId`
+  // override still wins, so a sweep can pin one map deliberately.
+  const settings = quickSettings({
+    seats: seatConfigs,
+    mapId: mapIdForPlayerCount(seatConfigs.length),
+    ...overrides,
+  });
   let state = createMatch(settings, seed);
 
   const bots = new Map<string, AIAgent>();

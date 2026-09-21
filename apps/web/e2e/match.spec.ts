@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { chooseAction, chooseMove, createDuelLobby, readyAndStart } from './helpers.js';
 
 /**
  * Phase 1 Success Criterion 3, client half: a player who readied up lands on
@@ -13,9 +14,9 @@ test.describe('Match — board, order composition, and submission', () => {
   test('ready up alone, land on the board, compose and submit a two-action order', async ({ page }) => {
     test.setTimeout(60_000);
 
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Create Game' }).click();
-    await page.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
+    // duel-12, one agent each — asked for explicitly through the host
+    // settings now that both are host-configurable (see e2e/helpers.ts).
+    await createDuelLobby(page);
 
     await page.getByRole('button', { name: 'Ready Up' }).click();
     await expect(page.getByRole('button', { name: 'Ready ✓', exact: true })).toBeVisible();
@@ -43,16 +44,11 @@ test.describe('Match — board, order composition, and submission', () => {
       await expect(page.getByText(name, { exact: true })).toBeVisible();
     }
 
-    // Compose: click an adjacent legal node (slot 1, a MOVE), then Hold
-    // (slot 2). The board only highlights nodes legalOrders() actually
+    // Compose: pick Move, then click an adjacent legal node (slot 1), then
+    // Hold (slot 2). The board only highlights nodes legalOrders() actually
     // returned, so whichever legal-target ring is on screen is a real MOVE.
-    const legalTarget = page.locator('[data-legal-target="move"]').first();
-    await expect(legalTarget).toBeVisible();
-    const box = await legalTarget.boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
-
-    await page.getByRole('button', { name: 'Hold' }).click();
+    await chooseMove(page);
+    await chooseAction(page, 'Hold');
 
     const submit = page.getByRole('button', { name: 'Submit Orders' });
     await expect(submit).toBeEnabled();
@@ -77,12 +73,13 @@ test.describe('Match — board, order composition, and submission', () => {
   test('keyboard: arrow to an adjacent node and press Enter, same as a click would produce', async ({ page }) => {
     test.setTimeout(60_000);
 
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Create Game' }).click();
-    await page.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
-    await page.getByRole('button', { name: 'Ready Up' }).click();
-    await page.waitForURL(/\/match\/[A-Z0-9]{6}$/, { timeout: 30_000 });
+    await createDuelLobby(page);
+    await readyAndStart(page);
     await expect(page.getByText('Karl-Marx-Allee', { exact: true })).toBeVisible();
+
+    // Choosing the operation first is what makes the board click (or Enter)
+    // unambiguous — the same two-step the mouse path takes (ORDER-07).
+    await chooseAction(page, 'Move');
 
     // The host is always seat index 0 (RED, per packages/shared/src/enums.ts's
     // SECTORS order), so the agent always starts at karl_marx_allee. Its
@@ -95,7 +92,8 @@ test.describe('Match — board, order composition, and submission', () => {
     await board.press('ArrowLeft');
     await board.press('Enter');
 
-    await expect(page.getByText(/Move → glienicke_bridge/)).toBeVisible();
+    // Node names, not raw ids — lib/format.ts's actionText renders the slot.
+    await expect(page.getByText('Move to Glienicke Bridge')).toBeVisible();
   });
 
   test('a rejected submission returns the composer to editable with the exact copy', async ({ page }) => {
@@ -135,14 +133,11 @@ test.describe('Match — board, order composition, and submission', () => {
       });
     });
 
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Create Game' }).click();
-    await page.waitForURL(/\/lobby\/[A-Z0-9]{6}$/);
-    await page.getByRole('button', { name: 'Ready Up' }).click();
-    await page.waitForURL(/\/match\/[A-Z0-9]{6}$/, { timeout: 30_000 });
+    await createDuelLobby(page);
+    await readyAndStart(page);
 
-    await page.getByRole('button', { name: 'Hold' }).click();
-    await page.getByRole('button', { name: 'Hold' }).click();
+    await chooseAction(page, 'Hold');
+    await chooseAction(page, 'Hold');
     await page.getByRole('button', { name: 'Submit Orders' }).click();
 
     await expect(

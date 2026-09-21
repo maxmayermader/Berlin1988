@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { LobbySnapshot, PlayerView } from '@berlin/shared';
+import type { Action, LobbySnapshot, PlayerView } from '@berlin/shared';
 
 /** Per-agent order status, keyed by agent id. Reconciled from the room's
  *  own ORDER_ACK/ORDER_REJECTED reply — never assumed from the send alone
@@ -38,11 +38,28 @@ interface MatchStore {
   readonly committed: Record<string, CommittedCount>;
   /** Keyed by agentId. */
   readonly orderStatus: Record<string, OrderStatus>;
+  /**
+   * What this client submitted for each of its own agents this round, keyed
+   * by agentId. Not a mirror of server state — it is the client's record of
+   * its OWN orders, which it obviously already knows, and it exists because
+   * `view.self.intel` does not reflect submitted-but-unresolved spending:
+   * Intel is charged during resolution. Without it, a player's second agent
+   * is offered the full Intel pool the first agent is already spending
+   * (ORDER-05) and the room refuses the order with no explanation the
+   * player can act on. Round-scoped, cleared alongside orderStatus.
+   */
+  readonly acceptedOrders: Record<string, readonly Action[]>;
   readonly clock: ClockStore;
   setSnapshot: (snapshot: LobbySnapshot) => void;
   setView: (view: PlayerView) => void;
   setCommitted: (playerId: string, committed: number, total: number) => void;
   setOrderStatus: (agentId: string, status: OrderStatus) => void;
+  /** Records an order this client has sent for one of its own agents. */
+  recordAccepted: (agentId: string, actions: readonly Action[]) => void;
+  /** Drops that record — a withdrawn order is no longer spending anything. */
+  forgetAccepted: (agentId: string) => void;
+  /** Returns one agent to 'idle' so a replacement order can be composed. */
+  clearOrderStatus: (agentId: string) => void;
   setClock: (deadlineAt: number | null) => void;
   /** Called on ROUND_RESOLVED — commit counts are round-scoped and must not
    *  carry over once a fresh order phase opens. */
@@ -62,6 +79,7 @@ export const useMatchStore = create<MatchStore>((set) => ({
   view: null,
   committed: {},
   orderStatus: {},
+  acceptedOrders: {},
   clock: { deadlineAt: null },
   setSnapshot: (snapshot) => set({ snapshot }),
   setView: (view) => set({ view, clock: { deadlineAt: view.clock.deadlineAt } }),
@@ -69,7 +87,17 @@ export const useMatchStore = create<MatchStore>((set) => ({
     set((s) => ({ committed: { ...s.committed, [playerId]: { committed, total } } })),
   setOrderStatus: (agentId, status) =>
     set((s) => ({ orderStatus: { ...s.orderStatus, [agentId]: status } })),
+  recordAccepted: (agentId, actions) =>
+    set((s) => ({ acceptedOrders: { ...s.acceptedOrders, [agentId]: actions } })),
+  forgetAccepted: (agentId) =>
+    set((s) => {
+      const next = { ...s.acceptedOrders };
+      delete next[agentId];
+      return { acceptedOrders: next };
+    }),
+  clearOrderStatus: (agentId) =>
+    set((s) => ({ orderStatus: { ...s.orderStatus, [agentId]: { state: 'idle' } } })),
   setClock: (deadlineAt) => set({ clock: { deadlineAt } }),
   resetCommitted: () => set({ committed: {} }),
-  resetOrderStatus: () => set({ orderStatus: {} }),
+  resetOrderStatus: () => set({ orderStatus: {}, acceptedOrders: {} }),
 }));

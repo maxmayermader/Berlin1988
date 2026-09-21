@@ -26,11 +26,18 @@ interface UiStore {
   /** Keyed by agentId. */
   readonly draftByAgent: Readonly<Record<string, OrderDraft>>;
   readonly hoverNodeId: NodeId | null;
+  /** The ActionOption key awaiting a board target, or null when the picker
+   *  is not in targeting mode. Pure UI state: which menu entry the player
+   *  has selected but not yet aimed. Cleared whenever the agent, the slot,
+   *  or the round changes, so a stale selection can never be aimed at a
+   *  target that belongs to a different option. */
+  readonly pendingOptionKey: string | null;
   readonly connectionStatus: ConnectionStatus;
   readonly matchSubState: MatchSubState;
   readonly reveal: RevealState | null;
   selectAgent: (agentId: AgentId) => void;
   setHoverNode: (nodeId: NodeId | null) => void;
+  setPendingOption: (key: string | null) => void;
   setConnectionStatus: (status: ConnectionStatus) => void;
   draftFor: (agentId: AgentId) => OrderDraft;
   setDraft: (agentId: AgentId, draft: OrderDraft) => void;
@@ -54,22 +61,31 @@ export const useUiStore = create<UiStore>((set, get) => ({
   selectedAgentId: null,
   draftByAgent: {},
   hoverNodeId: null,
+  pendingOptionKey: null,
   connectionStatus: 'connecting',
   matchSubState: 'ORDERS',
   reveal: null,
-  selectAgent: (agentId) => set({ selectedAgentId: agentId }),
+  // Switching agents abandons any half-aimed action: the targets on screen
+  // belong to the agent that was active when the option was chosen.
+  selectAgent: (agentId) => set({ selectedAgentId: agentId, pendingOptionKey: null }),
   setHoverNode: (nodeId) => set({ hoverNodeId: nodeId }),
+  setPendingOption: (key) => set({ pendingOptionKey: key }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   draftFor: (agentId) => get().draftByAgent[agentId as string] ?? emptyDraft(),
+  // Any draft write resolves or abandons the pending option — the slot it
+  // was aimed at has just been filled or cleared either way.
   setDraft: (agentId, draft) =>
-    set((s) => ({ draftByAgent: { ...s.draftByAgent, [agentId as string]: draft } })),
+    set((s) => ({
+      draftByAgent: { ...s.draftByAgent, [agentId as string]: draft },
+      pendingOptionKey: null,
+    })),
   clearDraft: (agentId) =>
     set((s) => {
       const next = { ...s.draftByAgent };
       delete next[agentId as string];
       return { draftByAgent: next };
     }),
-  clearAllDrafts: () => set({ draftByAgent: {} }),
+  clearAllDrafts: () => set({ draftByAgent: {}, pendingOptionKey: null }),
   enterResolution: (log) => set({ matchSubState: 'RESOLUTION', reveal: initialReveal(log) }),
   advanceReveal: (log) =>
     set((s) => ({ reveal: advance(s.reveal ?? initialReveal(log), log) })),

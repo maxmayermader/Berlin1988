@@ -1,3 +1,4 @@
+import { DEFAULT_LOBBY_SETTINGS } from '@berlin/shared';
 import {
   directoryEntrySchema,
   serverMessageSchema,
@@ -37,6 +38,7 @@ function lobbyState(overrides: Partial<RoomState> = {}): RoomState {
     deadlineRound: null,
     botSubmissions: [],
     chat: { LOBBY: [], MATCH: [] },
+    settings: DEFAULT_LOBBY_SETTINGS,
     disconnectedSeats: [],
     ...overrides,
   };

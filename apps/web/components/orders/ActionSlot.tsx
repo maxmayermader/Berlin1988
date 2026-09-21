@@ -1,71 +1,46 @@
 'use client';
 
-import type { Action } from '@berlin/shared';
+import type { Action, MapDefinition } from '@berlin/shared';
+import { actionText } from '../../lib/format.js';
 
 export interface ActionSlotProps {
   /** 0 or 1. */
   index: number;
   action: Action | null;
-  /** This is the slot the next click/Hold will fill. */
+  /** This is the slot the picker is currently filling. */
   isActive: boolean;
-  canHold: boolean;
-  onHold: () => void;
+  map: MapDefinition;
+  /** Intel this action will cost, shown once composed (ORDER-03). */
+  intelCost: number | null;
   onClear: () => void;
 }
 
-function describeAction(action: Action): string {
-  switch (action.type) {
-    case 'HOLD':
-      return 'Hold';
-    case 'MOVE':
-      return `Move → ${action.to}`;
-    case 'SPRINT':
-      return `Sprint via ${action.via} → ${action.to}`;
-    case 'WIRETAP':
-      return `Wiretap ${action.target}`;
-    case 'BRIBE':
-      return 'Bribe';
-    case 'DECOY':
-      return `Decoy → ${action.target}`;
-    case 'SAFEHOUSE':
-      return 'Place safehouse';
-    case 'STRIKE':
-      return `Strike ${action.target}`;
-    case 'AMBUSH':
-      return 'Set ambush';
-    default:
-      return 'Unknown';
-  }
-}
-
-/** One of an agent's two action slots. Tracer scope offers only a Hold
- *  button here — MOVE is filled by clicking the board, per Task 1's action
- *  text. Later slots' card-driven actions render via the same describeAction
- *  mapping once composed, whichever slot they land in. */
-export function ActionSlot({ index, action, isActive, canHold, onHold, onClear }: ActionSlotProps) {
+/**
+ * One of an agent's two action slots — a readout of what is composed, plus
+ * a way to clear it. Choosing an action happens in ActionPicker; this shows
+ * the result. Node names rather than ids come from lib/format.ts, the single
+ * source of human-readable text.
+ */
+export function ActionSlot({ index, action, isActive, map, intelCost, onClear }: ActionSlotProps) {
   return (
     <div
-      className={
-        isActive
-          ? 'flex items-center justify-between gap-2 rounded border border-[#2563eb] px-3 py-2 text-sm'
-          : 'flex items-center justify-between gap-2 rounded border border-[#e2e8f0] px-3 py-2 text-sm'
-      }
+      className={`flex items-center justify-between gap-2 rounded border px-3 py-2 text-sm ${
+        isActive ? 'border-[#2563eb]' : 'border-[#e2e8f0]'
+      }`}
     >
       <span className="font-semibold">Slot {index + 1}</span>
       <span className="flex-1 truncate">
-        {action ? describeAction(action) : isActive ? 'Choose a target on the board' : 'Empty'}
+        {action ? actionText(map, action) : isActive ? 'Choose an action below' : 'Empty'}
       </span>
-      {!action && isActive && canHold && (
-        <button
-          type="button"
-          onClick={onHold}
-          className="rounded border border-[#e2e8f0] px-2 py-1 text-xs font-semibold"
-        >
-          Hold
-        </button>
+      {action && intelCost !== null && intelCost > 0 && (
+        <span className="shrink-0 text-xs text-[#475569]">{intelCost} Intel</span>
       )}
       {action && (
-        <button type="button" onClick={onClear} className="rounded border border-[#e2e8f0] px-2 py-1 text-xs">
+        <button
+          type="button"
+          onClick={onClear}
+          className="shrink-0 rounded border border-[#e2e8f0] px-2 py-1 text-xs"
+        >
           Clear
         </button>
       )}

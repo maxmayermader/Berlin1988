@@ -2,12 +2,13 @@
 
 import { ALL_CARDS } from '@berlin/engine';
 import { clientMessageSchema } from '@berlin/shared';
-import type { ClientMessage, LobbySnapshot, ServerMessage } from '@berlin/shared';
+import type { ClientMessage, LobbySettings, LobbySnapshot, ServerMessage } from '@berlin/shared';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Deckbuilder } from '../../../components/deck/Deckbuilder.js';
 import { ChatPanel } from '../../../components/lobby/ChatPanel.js';
 import { CodenameEditor } from '../../../components/lobby/CodenameEditor.js';
+import { MatchSettingsPanel } from '../../../components/lobby/MatchSettingsPanel.js';
 import { ReadyCountdown } from '../../../components/lobby/ReadyCountdown.js';
 import { SeatCountControl } from '../../../components/lobby/SeatCountControl.js';
 import { SeatList } from '../../../components/lobby/SeatList.js';
@@ -48,6 +49,12 @@ export default function LobbyPage() {
   // type — the plan's own reasoning is that a rare race is not worth a new
   // message type), cleared the same way as seatCountError.
   const [kickError, setKickError] = useState<string | null>(null);
+  // Set from a SET_SETTINGS_REJECTED frame, cleared on the next ROOM_STATE —
+  // the same "next authoritative frame wins" discipline as seatCountError.
+  // `field` lets the panel mark the one offending control (LOBBY-14).
+  const [settingsError, setSettingsError] = useState<{ field: string | null; message: string } | null>(
+    null,
+  );
   // Set from a CHAT_REJECTED frame, cleared on the next accepted
   // CHAT_MESSAGE — mirrors seatCountError/kickError's "the next
   // authoritative frame wins" discipline.
@@ -59,9 +66,13 @@ export default function LobbyPage() {
       setSnapshot(message.snapshot);
       setSeatCountError(null);
       setKickError(null);
+      setSettingsError(null);
     }
     if (message.type === 'JOINED') setPlayerId(message.playerId);
     if (message.type === 'SET_SEAT_COUNT_REJECTED') setSeatCountError(message.message);
+    if (message.type === 'SET_SETTINGS_REJECTED') {
+      setSettingsError({ field: message.field, message: message.message });
+    }
     // The lobby page's only ERROR source once joined is a rejected KICK
     // (order-related ERROR codes never fire pre-match) — shown as the
     // UI-SPEC's kick-rejected copy rather than the server's own message,
@@ -142,6 +153,10 @@ export default function LobbyPage() {
 
   function selectSeatCount(count: number) {
     send({ type: 'SET_SEAT_COUNT', count });
+  }
+
+  function changeSettings(settings: LobbySettings) {
+    send({ type: 'SET_SETTINGS', settings });
   }
 
   function kickSeat(seatIndex: number) {
@@ -226,6 +241,14 @@ export default function LobbyPage() {
               onKick={isHost ? kickSeat : undefined}
             />
             {kickError && <p className="text-sm text-[#dc2626]">{kickError}</p>}
+            <MatchSettingsPanel
+              settings={snapshot.settings}
+              seatCount={snapshot.seats.length}
+              isHost={isHost}
+              errorField={settingsError?.field ?? null}
+              error={settingsError?.message ?? null}
+              onChange={changeSettings}
+            />
           </div>
           {mySeat && (
             <div className="flex gap-2">

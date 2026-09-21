@@ -1,5 +1,5 @@
 import { neighbours } from '@berlin/engine';
-import type { ServerMessage } from '@berlin/shared';
+import { DEFAULT_LOBBY_SETTINGS, type ServerMessage } from '@berlin/shared';
 import { describe, expect, it } from 'vitest';
 import { createTestRoom } from './helpers.js';
 
@@ -21,8 +21,11 @@ function last<T extends ServerMessage['type']>(
 }
 
 /** Two humans, both ready, alarm fired — lands IN_GAME with agentsPerPlayer
- *  locked to 1 (D-02), so each seat's single agent committing is exactly
- *  what closes the round. */
+ *  set to 1, so each seat's single agent committing is exactly what closes
+ *  the round. That used to be the hardcoded D-02 value; since Phase 6 it is
+ *  a host setting, so this tracer asks for it explicitly rather than relying
+ *  on a default (which is now 2). SET_SETTINGS must precede SET_READY — a
+ *  settings change clears ready state by design (LOBBY-15). */
 async function startTwoPlayerMatch() {
   const room = createTestRoom();
   const host = room.connect('Vogel');
@@ -33,6 +36,11 @@ async function startTwoPlayerMatch() {
   const guest = room.connect('Katja');
   await guest.send({ type: 'JOIN', code, codename: 'Katja' });
   const guestPlayerId = last(guest.received, 'JOINED')!.playerId;
+
+  await host.send({
+    type: 'SET_SETTINGS',
+    settings: { ...DEFAULT_LOBBY_SETTINGS, agentsPerPlayer: 1 },
+  });
 
   await host.send({ type: 'SET_READY', ready: true });
   await guest.send({ type: 'SET_READY', ready: true });

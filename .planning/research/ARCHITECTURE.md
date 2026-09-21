@@ -1,288 +1,366 @@
-# Architecture Research
+# Architecture Research — v1.1 Gameplay and UI Refinement
 
-**Domain:** Realtime multiplayer hidden-movement web game (PartyKit + Next.js + pure TS rules engine)
-**Researched:** 2026-08-18
-**Confidence:** MEDIUM-HIGH — this project already has an unusually detailed, code-verified architecture (`docs/ARCHITECTURE.md`, written specifically for this game); this document validates it against current PartyKit ecosystem practice and fills the one real gap (lobby-state vs. match-state separation), rather than proposing a new architecture from scratch.
+**Domain:** Feature integration for a brownfield TypeScript monorepo (pure engine + AI package + Next.js client + PartyKit authoritative server)
+**Researched:** 2026-09-14
+**Confidence:** HIGH — every claim below is traced to a specific file read in this repository, not inferred from the docs alone. Where a claim rests on documentation rather than code, it is marked.
 
-This is a **subsequent-milestone** research pass. The prior milestone (Phases 0/1/3) already built and tested `packages/shared`, `packages/engine`, `packages/ai`. This milestone's job is `apps/web` + `apps/party`, which are currently skeletons. The question is not "what architecture should this game have" (already answered, in depth, in `docs/ARCHITECTURE.md`) — it's "does that plan hold up against how PartyKit apps are actually built in practice, and how do lobby and match state divide."
+## How to read this document
 
-## Standard Architecture
+This is not "what does a hidden-movement game architecture look like" — the architecture already exists and is sound (v1.0 shipped 28/28 requirements, 580 tests green). This document answers: **for each v1.1 feature, which existing files does it touch, does it need a `packages/shared`/protocol/`packages/engine`/`packages/ai` change, and what's the data flow before/after.** It is written for the roadmapper and phase planners, so every claim names a file.
 
-### System Overview
+The single biggest finding: **`legalOrders()` already drives every action type and every target list — the gap is entirely in `apps/web`, which never asks it for anything beyond `HOLD` and `MOVE`.** Nearly all of v1.1 is presentation work surfacing data the engine and protocol already produce. Two areas are the exception and need small, well-scoped `packages/engine` / protocol additions: cross-agent Intel preview on the client, and host-configurable match settings (`SET_SETTINGS` does not exist yet, despite being documented as if it did).
+
+---
+
+## System Overview (unchanged by v1.1)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  BROWSER — apps/web (Next.js, Vercel)                                │
-│                                                                        │
-│   Client components: board (SVG), order composer, replay animator,    │
-│   lobby UI, deckbuilder                                               │
-│    ├─ holds ONLY a PlayerView (+ local lobby state) — never GameState │
-│    └─ imports @berlin/engine for LOCAL PREDICTION ONLY                │
-│         (legalOrders() for greyed-out affordances, Intel preview —    │
-│          never authoritative; server re-validates everything)         │
-└──────────────┬─────────────────────────────┬──────────────────────────┘
-               │ WebSocket (PartySocket)      │ WebSocket (PartySocket)
-               │ party: "match"               │ party: "lobbies" (directory)
-               ▼                              ▼
-┌───────────────────────────────┐   ┌──────────────────────────────────┐
-│  MATCH ROOM — apps/party       │   │  LOBBIES DIRECTORY ROOM           │
-│  party="match", id=matchId     │   │  party="lobbies", id="index"      │
-│  1 Durable Object per match    │   │  1 singleton Durable Object       │
-│                                 │   │                                    │
-│  Internal phase state machine: │   │  Purpose: public browsable list   │
-│   LOBBY → LOADOUT → IN_GAME    │   │  of open (joinable) matches.      │
-│   → ENDED                      │   │  Each match room announces        │
-│                                 │◀──┤  itself here on create/seat-     │
-│  ┌───────────────────────────┐│   │  change/close (internal fetch or  │
-│  │ AUTHORITATIVE GameState   ││   │  onConnect broadcast to this room)│
-│  │ created lazily at LOBBY→  ││   └──────────────────────────────────┘
-│  │ LOADOUT transition        ││
-│  │ @berlin/engine            ││
-│  │ @berlin/ai (bot seats)    ││
-│  │ projectView() per seat    ││
-│  └───────────────────────────┘│
-└───────────────────────────────┘
+│  BROWSER (apps/web) — holds ONE PlayerView, never GameState          │
+│   lib/socket.ts → matchStore (view) + uiStore (drafts, reveal)       │
+│   components/{orders,board,hud,intel,resolution,result}/             │
+│   imports @berlin/engine ONLY for legalOrders() preview               │
+└────────────┬─────────────────────────────────┬───────────────────────┘
+             │ WebSocket (Zod-validated)        │
+             ▼                                  │
+┌────────────────────────────────┐              │
+│  PARTYKIT ROOM (apps/party)     │              │
+│  RoomState.gameState: GameState │◄─────────────┘
+│  handlers.ts → submitOrder()    │
+│  round.ts → resolveRound()      │
+│  broadcast.ts → projectView()   │  ONE call per connection, chokepoint
+│  bots.ts → @berlin/ai           │
+└────────────────────────────────┘
 ```
 
-**Core invariant, unchanged from the existing docs and re-confirmed by research:** the full `GameState` exists in exactly one place, inside the match room's Durable Object. Nothing else in the system — not the browser, not the lobbies directory room — ever holds it. Everything a client receives crosses `projectView()`.
+Nothing about this shape changes in v1.1. Every feature below is additive within it: new fields read off `PlayerView` that already exist, new components, one new engine export, one new protocol message, two new map data files.
 
-### Component Responsibilities
+---
 
-| Component | Responsibility | Typical Implementation |
-|-----------|----------------|------------------------|
-| `apps/web` client | Render UI from `PlayerView` + lobby snapshot; predictive legality only | Next.js App Router, React client components, Zustand for session/UI state, `PartySocket` for the wire |
-| Match room (`apps/party`, party type `match`) | Own `GameState`, validate/collect orders, run `resolveRound()`, run bot seats, broadcast per-seat `PlayerView` | `PartyServer`-style class (`onConnect`, `onMessage`, `onAlarm`), one Durable Object per `matchId` |
-| Lobbies directory room (`apps/party`, party type `lobbies`, singleton id) | Ephemeral registry of open/joinable matches for the public browse list | Same PartyKit project, second "party" (see "Using multiple parties per project"), in-memory `Map`, no persistence needed for v1 |
-| `@berlin/engine` | Pure rules: `createMatch`, `legalOrders`, `submitOrder`, `resolveRound`, `projectView` | Imported by both browser (prediction) and match room (authority) — same package, two runtimes |
-| `@berlin/ai` | Bot decision-making per seat | Imported by match room only, never by browser |
+## Feature Integration Points
 
-## PartyKit Fit — Validated
+### 1. Full order composer (every action + card + silencer purchase)
 
-Researched against current PartyKit documentation and the Cloudflare acquisition status (PartyKit joined Cloudflare in 2024; the project — including `partyserver`, the class-based server API — remains actively maintained as of March 2026 with regular releases). The existing stack decision in `docs/ARCHITECTURE.md` §1 holds:
+**Files touched:**
 
-- **Room-per-match is the idiomatic PartyKit pattern.** PartyKit guarantees that connecting to a party with the same room id routes to the same Durable-Object-backed instance, and each unique id spins up an isolated instance with no shared state between rooms — this is exactly the "one Durable Object per match" model already chosen.
-- **`onStart` / `onConnect` / `onMessage` / `onClose` / `onAlarm` is the standard lifecycle** for a `Party.Server`-style class. `onStart` is the right place to hydrate room state from storage on cold start/wake; time-based behavior (round deadlines, auto-hold) belongs in `onAlarm`, matching the existing constraint that the engine itself never touches a clock.
-- **Storage + alarms are the persistence primitive**, not a database. PartyKit's own guidance is that live/session state belongs in room memory (or the room's small transactional KV storage for surviving hibernation/restarts), and that a database is for durable cross-session data — which lines up with this project's decision to defer Postgres to a later phase and treat a match as ephemeral for v1.
-- **Hibernation matters for cost/scale but changes one thing operationally:** if hibernation is enabled, don't attach ad-hoc event listeners inside `onConnect` — they're lost on wake. Route everything through the class's `onMessage`/`onClose` handlers, which the existing message-handler design in `apps/party/src/handlers/` already implies.
-- **"Using multiple parties per project"** is a first-class PartyKit feature (`/parties/:party/:room-id`), and it is the mechanism this document uses to justify a separate `lobbies` directory party from the per-match `match` party, without introducing a second deployment target or a database.
+| File | New/Modified | Change |
+|---|---|---|
+| `apps/web/components/orders/OrderComposer.tsx` | Modified | Currently renders only `ActionSlot` (Hold + implicit board-click Move/Strike). Needs to render the full `legalForSlot` list from `legalOrders(view, activeAgentId, prefix)` grouped by action type, not just check `canHold`. |
+| `apps/web/components/orders/ActionSlot.tsx` | Modified | `describeAction()` already formats all 9 action types (dead code today — never reached because nothing but `HOLD`/board-clicks ever gets assigned to a slot). Needs an actual picker UI, not just a passive label. |
+| `apps/web/lib/orderDraft.ts` | Modified | `composerTargets()` only extracts `moveTargets`/`strikeTargets` from `legalForSlot`. Needs `wiretapTargets`/`decoyTargets` extraction (WIRETAP and DECOY are node-targeted the same way MOVE/STRIKE are) and a card-picker path for the four non-targeted plays (`BRIBE`, `SAFEHOUSE`, `AMBUSH` have no `target` field at all; `SPRINT` needs a two-node `via`+`to` picker, not one click). `toAgentOrder()` needs to carry `buySilencers` — it currently drops it. |
+| `apps/web/components/board/TargetOverlay.tsx` | Modified | Needs a `wiretapTargets`/`decoyTargets` prop and a distinct visual treatment per action-type highlight (today only move/strike are distinguished). |
+| New: `apps/web/components/orders/CardPicker.tsx` (or similar) | New | Non-targeted card plays (`BRIBE`, `SAFEHOUSE`, `AMBUSH`) and the silencer-purchase control have no board-click path — they need a direct list of buttons, each showing Intel cost (`ActiveCard.intelCost`) and cooldown (`self.cooldowns[cardId]` via `cooldownRemaining()`, already exported from `@berlin/engine`). |
 
-Net: the ecosystem confirms the plan already on file. No architecture change is warranted; this research adds the lobby/match split (below) and de-risks a couple of specific mechanics.
+**Can `legalOrders(view, agentId, prefix)` drive every action type's affordances, including card choice and target nodes? — Yes, already, in full.** Verified by reading `packages/engine/src/legalOrders.ts`: it enumerates `HOLD`, every legal `MOVE`, every legal `SPRINT` (both Intel-paid and `AGENT`-card-paid variants), every `WIRETAP` target (every non-blocked node), `BRIBE` (when standing on an unclaimed informant node), every `DECOY` target (start node + 2-hop range, capped by `ruleset.maxActiveDecoys`), `SAFEHOUSE` (when not already there), every `STRIKE` target (self + neighbours), and `AMBUSH` (free action or slot-consuming, per `ruleset.ambushCostsAction`) — filtered by `self.loadout.includes(id)`, `isReady()` (cooldown), `!sim.cardsUsed.has(id)` (already used this round), and `card.intelCost <= intelLeft`. It also respects the "movement before operations" rule (closes movement once a `STRIKE`/`BRIBE` is in the prefix) so the UI never offers an action it will then reject. **No `packages/engine` change is needed to make the composer complete** — every affordance the UI needs is already a member of the array `legalOrders` returns.
 
-## Gap Filled: Lobby State vs. Match State
+**Intel cost / cooldown preview across two agents sharing one Intel pool, submitted separately — this is the one real gap.**
 
-`docs/ARCHITECTURE.md` §5 defines a protocol (`JOIN`, `SET_SETTINGS`, `SET_SEAT`, `SUBMIT_LOADOUT`, `SUBMIT_ORDER`, ...) inside **one room**, without separating "this is lobby-phase state" from "this is in-match state," and `PROJECT.md`'s Active requirements add things the original protocol doesn't cover: a join code, a **public browsable list of open lobbies**, host kick/resize, ready-up with a ≥50%-of-filled-seats threshold, and solo mode (AI auto-fills empty seats). Two structural decisions resolve this cleanly:
+Traced the mechanism precisely:
 
-### Decision 1: One room per match, with an internal phase state machine (not two room types)
+- `packages/engine/src/submitOrder.ts` exports `viewForOrdering(state, player, agentId)` — internally `viewWithCommittedSpend()` — which reduces `view.self.intel` by the Intel cost of every *other* agent's **already-submitted** (`state.pendingOrders`) order before validating. This requires a `GameState`, which only exists inside `apps/party`. `apps/web` never has a `GameState` (by design — `apps/web/CLAUDE.md` rule 1) and therefore **cannot call `viewForOrdering` itself.**
+- The doc comment on `viewForOrdering` says explicitly: *"The client does the same subtraction locally from its own pending orders."* This client-side subtraction **does not exist yet.** `apps/web/components/orders/OrderComposer.tsx` calls `legalOrders(view, activeAgentId, prefix)` against the raw `view` from `matchStore`, where `view.self.intel` is **not** reduced by the other agent's already-submitted order.
+- Confirmed the server-side view is stale on the client independent of this: `apps/party/src/broadcast.ts`'s `sendViews`/`sendResolved` are the only two `projectView()`-based sends, fired on `JOIN`/reclaim and on round close — **not** after an individual `ORDER_ACK`. So after agent 1 submits, `matchStore.view.self.intel` still shows the pre-spend balance until the round fully resolves.
+- Consequence today (latent, because `agentsPerPlayer` is hardcoded to `1` — see Feature 6): a 2-agent player's composer for agent 2 would preview affordability against the wrong (too generous) Intel balance, and could offer/accept an action client-side that the server then rejects with `INSUFFICIENT_INTEL` once submitted.
+- **Does `submitOrder()` on the server re-validate cross-agent Intel? Yes, already, correctly.** `viewWithCommittedSpend` runs on every `submitOrder()` call, reading `state.pendingOrders` for the player's *other* agents — this is authoritative and cannot be bypassed by the client. The server is not the gap; the client preview is.
 
-Do **not** split "lobby room" and "match room" into two different PartyKit rooms that hand off state at start — that requires serializing lobby state into match state across a room boundary, doubles the message-handling surface, and reintroduces the exact "state migration" bug class this project's engine purity rules exist to avoid.
+**Recommended fix (small `packages/engine` addition, not a protocol or `PlayerView` change):** export a pure Intel-cost-of-an-order calculator — the same logic currently private as `intelCostOf()` in `submitOrder.ts` — from `packages/engine`'s public surface (e.g. add to `costs.ts` and re-export from `index.ts`). `apps/web`'s composer then does its own local reduction: for every *other* living agent whose `orderStatus[agentId].state === 'accepted'` (already tracked per-agent in `apps/web/lib/matchStore.ts`), look up that agent's committed draft (`draftByAgent` in `apps/web/lib/uiStore.ts`) and subtract `costOfOrder(map, ruleset, self, draft.actions, draft.buySilencers)` from `view.self.intel` before calling `legalOrders`. This is a **pure function export, not a `PlayerView` field** — it takes the same inputs the client already legitimately holds (its own drafts, its own view) and introduces no new information flow, so it does not touch the fog boundary.
 
-Instead, one match room (`party=match`, `id=matchId`) owns a single `RoomState` object with a `phase` field:
+**Silencer purchases — `AgentOrder.buySilencers`, not an `Action`.** Confirmed in `packages/shared/src/orders.ts`: `buySilencers` is a sibling field on `AgentOrder`, not a member of the `Action` union, so it never appears in `legalOrders()`'s output and needs its own UI control (a stepper, not a board click or card button), wired through `orderDraft.ts`'s `toAgentOrder()` (which currently drops it — a real bug to fix). **Important gap found in the engine, not just the UI:** `submitOrder()` does *not* validate `order.buySilencers` against affordability or `ruleset.maxSilencersHeld` at submission time (traced in `submitOrder.ts` — only the *other* agent's `buySilencers` is subtracted via `intelCostOf`, never the current agent's own request against the cap or its own remaining Intel). The actual enforcement is a silent clamp at resolution time in `packages/engine/src/resolution/arm.ts`: it buys as many as it can afford up to `maxSilencersHeld`, and **silently drops the rest — no rejection code exists for "requested more silencers than affordable."** The composer must therefore clamp its own input to `min(ruleset.maxSilencersHeld - self.silencers, floor(intelLeft / ruleset.silencerIntelCost))` and treat that as advisory UX, not something the server will confirm or reject — there is no `ORDER_REJECTED` path for over-requesting.
 
-```ts
-type RoomPhase = "LOBBY" | "LOADOUT" | "IN_GAME" | "ENDED";
+**Fog-of-war check:** none of the above touches `PlayerView`'s shape. The one proposed engine export is a pure calculator over data the client already has (its own draft actions, its own `self`, the public `map`/`ruleset`). No new field crosses the client/server boundary.
 
-interface RoomState {
-  phase: RoomPhase;
-  matchId: string;
-  joinCode: string;           // short human-entered code, separate from matchId
-  hostId: PlayerId;
-  seats: SeatConfig[];        // size, human/bot, personality/difficulty (host-only edits)
-  readyFlags: Record<PlayerId, boolean>;
-  loadouts: Record<PlayerId, CardId[]>;
-  gameState?: GameState;      // present only once phase >= LOADOUT→IN_GAME transition commits
-}
+---
+
+### 2. Own-status panel
+
+**Files touched:** New component only, e.g. `apps/web/components/hud/SelfStatusPanel.tsx`. No existing component currently reads `view.self.intel`, `.safehouse`, `.loadout`, `.passivesAvailable`, `.cooldowns`, `.silencers`, `.traps`, `.decoys`, `.burnsInflicted`, `.dossiersExtracted` for display (`view.ts` confirms every one of these fields is already on `SelfView` and delivered every round).
+
+**Data gap: none.** `SelfView` (`packages/shared/src/view.ts`) already carries every field the requirement lists. This is pure presentation work — no `packages/shared`, protocol, or `packages/engine` change.
+
+**Fog-of-war check:** trivially clean — this is the viewer's *own* full secret state, which `SelfView` already exists to carry in full (`docs/ARCHITECTURE.md` §4.1: "self: PlayerSecrets — yours in full").
+
+---
+
+### 3. Signals log
+
+**Files touched:** New component, e.g. `apps/web/components/intel/SignalsLog.tsx`, plus a small addition to `apps/web/lib/format.ts` if grouping/sorting by round is wanted (though `Signal.text` is already human-readable and screen-reader-ready per the field's own doc comment — no new formatter function is strictly required).
+
+**Data gap: none.** `PlayerView.signals: readonly Signal[]` (`view.ts`) is populated every round by `apps/party`'s `projectView()` call and is confirmed by `.planning/PROJECT.md`'s own audit note to be sent but never rendered. `Signal` already carries `kind`, `round`, `nodeId`, `sector`, `playerId`, human-readable `text`, and (for `RADIO_INTERCEPT`) a structured `intercept: InterceptFact`.
+
+**Fog-of-war check:** clean by construction — `signals` is generated inside `packages/engine/src/fog/signals.ts`, which is documented (`packages/engine/src/fog/CLAUDE.md` rule 3) to only emit true, appropriately vague facts. Nothing here needs review as a fog change; it's an existing, already-filtered feed.
+
+---
+
+### 4. Roster (alive/burned agents, every player) + everyone's Burn Tracks
+
+**Files touched:**
+
+| File | New/Modified | Change |
+|---|---|---|
+| New: `apps/web/components/hud/Roster.tsx` | New | Renders `view.opponents[].{name, faction, agentsAlive, agentsTotal, eliminated, score}` plus `view.self.agents[].alive` for the viewer's own row. |
+| `apps/web/components/intel/BurnTrackPanel.tsx` | Modified | Currently takes `entries: readonly BurnEntry[]` for exactly one player (the caller slices `view.burnTracks[view.self.id]`). Needs a player-selector (tabs, or a per-opponent row) so any `view.burnTracks[playerId]` can be viewed — every player's track is already present. |
+| `apps/web/components/match/MatchIntelDrawer.tsx` | Modified | Hardcodes `ownTrack = view.burnTracks[view.self.id]` at line 39 — this is the one line that needs to become "select a player, then look up `view.burnTracks[selectedId]`." |
+
+**Data gap: none.** Confirmed in `packages/shared/src/view.ts`: `OpponentPublicInfo` already carries `agentsAlive`, `agentsTotal`, `eliminated`, `score`, `intel`; and `PlayerView.burnTracks: Readonly<Record<string, readonly BurnEntry[]>>` is documented ("Every player's track, including the viewer's own, identically redacted") and confirmed in `projectView.ts` to be built by iterating **all** of `state.playerOrder`, not just the viewer. `.planning/PROJECT.md`'s audit already names this exact gap: `opponents[].agentsAlive/eliminated/intel/score` and opponents' `burnTracks` are sent but never rendered.
+
+**Fog-of-war check:** clean. Every field involved is already public-by-construction in `PlayerView` (agent *positions* are never in `OpponentPublicInfo`; only counts and status are). No new leak surface — this is wiring existing public fields into new UI.
+
+---
+
+### 5. Animated, skippable resolution replay on the map
+
+This is the feature with the most real architectural work, because **the map-based animated replay does not exist today** — only a text step-through does.
+
+**What exists today, confirmed by reading the code:**
+
+- `apps/web/components/resolution/StepThrough.tsx` + `apps/web/lib/stepThrough.ts`: a click-to-advance **text list**, driven by a single global `reveal: RevealState` cursor in `apps/web/lib/uiStore.ts`. `revealedEvents(log, reveal)` returns `log.slice(0, n)` — a prefix of `view.lastRound`, the engine's own emission order.
+- `apps/web/components/resolution/RoundHistoryPanel.tsx` reuses the *same* `StepThrough` component in `mode="full"` for historical rounds, specifically so there is never a second event-log renderer (`apps/web/lib/CLAUDE.md` rule 5; enforced by a cross-file test per `.planning/PROJECT.md`'s Key Decisions).
+- `apps/web/components/board/Board.tsx` / `AgentToken.tsx`: renders **only the viewer's current living agent positions** (`view.self.agents`, post-resolution) as static, unanimated `<circle>` elements. During the `RESOLUTION` sub-state, the match page (`apps/web/app/match/[code]/page.tsx`) renders `Board` with the exact same props as during `ORDERS` — there is no "before" state, no movement tween, no marker for any other event type. **The animated map timeline is entirely unbuilt.**
+- `apps/web/components/board/CLAUDE.md` already documents the intended files for this — `ResolutionReplay.tsx`, `ReplayControls.tsx`, a `TrapMarker.tsx`, a `SafehouseMarker.tsx` — none of which exist in `apps/web/components/board/` today. This is expected scope, not scope creep.
+
+**What can be animated, precisely, from the fog-filtered events the viewer receives — traced event-by-event in `packages/engine/src/fog/filterEvents.ts`:**
+
+| Event | Survives for viewer when... | Animatable as |
+|---|---|---|
+| `AGENT_MOVED` | `mine(playerId)` **only** — never for another player, at all | Full precise animation: `agentId`, `from`, `to`, `viaTunnel`/`viaCheckpoint`/`sprint` — but **only for the viewer's own agents.** Opponents' movement is structurally invisible; there is no path to animate for them. |
+| `STRIKE_FIRED` | Own strikes always; an opponent's only if `audibilityFor()` grades `EXACT` (adjacent), and then with `agentId` nulled | A flash/marker at `target` node — "someone fired here" — never a moving token, since the shooter's prior position is unknown to the viewer unless it's their own strike. |
+| `AGENT_BURNED` | Always public (fact), `agentId` nulled unless yours, `byPlayerId` nulled unless you're the killer or the victim holding *Sleeper Cell* | A marker at `nodeId` — "an agent was burned here" — anonymized per the same rule the text log already follows (`eventText()`'s `"Someone"`/`"An agent"` branching in `apps/web/lib/format.ts` is the existing precedent to mirror). |
+| `CONTEST` | Only if the viewer is a claimant | A marker/animation at `nodeId`, with `method` (coin flip / K9 roll / etc.) — `apps/web/components/board/CLAUDE.md` rule 3 already calls out that a 50/50 loss needs to visibly show it was a 50/50. |
+| `AMBUSH_TRIGGERED` | Victim always; owner sees it with `victimAgentId` nulled | Marker at `nodeId`, escape/seal state. |
+| `DOSSIER_TAKEN`, `EXTRACTION` | Always public, `agentId` nulled unless yours | Marker at `nodeId`. |
+| `BLOCKADE_*`, `DOSSIER_SPAWNED`, `INFORMANT_CLAIMED`, `CARD_PLAYED`, `PASSIVE_FIRED`, `PLAYER_ELIMINATED`, `MATCH_ENDED` | Always public, unconditionally | Node/board-wide markers, no identity concern at all. |
+| `SAFEHOUSE_PLACED`, `AMBUSH_SET`, `DECOY_PLACED`, `WIRETAP_RESULT`, `SILENCER_BOUGHT`, `INTEL_GAINED`, `CHECKPOINT_CROSSED` | Own only | Own-agent-only markers/animation. |
+
+**The architectural conclusion this drives:** the animated map cannot and must not attempt to show an opponent's agent traveling from A to B — that data was never sent, and building a client-side path-inference from public node-level events would be reconstructing hidden state from public breadcrumbs, which is exactly the kind of fog leak `docs/ARCHITECTURE.md` §4.1 and the fog-leak test suite exist to prevent. The correct design is: **precise, tweened movement for the viewer's own agent(s); anonymous "something happened here" markers, keyed by `nodeId`, for every public event that isn't the viewer's own.**
+
+**How to build it without a second event renderer** (the explicit ask): don't build an independent event-log parser for the map. Drive it from the *same* `reveal` cursor `StepThrough` already uses:
+
+1. New pure module, e.g. `apps/web/lib/boardEffects.ts` — a function `boardEffectsFor(events: readonly ResolutionEvent[]): BoardEffect[]` mapping each event to `{ nodeId, kind, ... } | null` (returns `null` for events with no map-relevant coordinate). Pure, colocated with `stepThrough.ts`'s existing style, independently testable exactly like `roundHeadline()`.
+2. `apps/web/app/match/[code]/page.tsx` (already reads `reveal` indirectly through `StepThrough`) additionally computes `revealedEvents(view.lastRound, reveal)` itself (or `StepThrough` exposes it, e.g. via a small prop-passthrough or a shared selector) and passes `boardEffectsFor(revealed)` into `Board` as a new prop.
+3. `Board.tsx` renders those effects as transient SVG markers layered near `TargetOverlay`; `AgentToken.tsx` becomes a `motion.circle` (Motion is already a project dependency, used elsewhere via `apps/web/lib/motion.ts`) whose position tweens when the viewer's own agent's `nodeId` changes between the pre-round and post-round position — which requires **capturing the pre-round position**, since `view.self.agents` only ever reflects the current (post-resolution) state. The pre-round position is derivable from the `AGENT_MOVED` event's own `from` field for the viewer's own agents; for opponents there is no "before" to show, matching the fog conclusion above.
+4. This means one cursor (`reveal` in `uiStore.ts`), one revealed-events selector (`revealedEvents()` in `stepThrough.ts`), and two consumers (`StepThrough`'s text rows, `Board`'s map markers) — never two independent playback states that could drift out of sync (a real risk the "no second renderer" instruction is explicitly guarding against, given `apps/web/lib/CLAUDE.md` rule 5's existing "one source of truth" convention for `format.ts`).
+
+**`packages/shared`/protocol/`packages/engine` changes needed: none.** Every event this animates is already delivered on `view.lastRound`. This is 100% `apps/web` work (new files: `boardEffects.ts`, likely `ResolutionReplay.tsx`/marker components under `components/board/`; modified: `Board.tsx`, `AgentToken.tsx`, `TargetOverlay.tsx`, `app/match/[code]/page.tsx`).
+
+**Fog-of-war check:** the design above is fog-safe by construction — it never invents an opponent position from a node id. The risk to flag for phase planning: it would be easy to accidentally add a "trail" effect that looks like it's showing an opponent walking, when actually only the destination node is known — reviewers should treat any opponent-agent animation that implies a *path* (not just a *node flash*) as a fog-leak candidate requiring explicit sign-off, same weight as a `PlayerView` field change.
+
+---
+
+### 6. Spectator view for eliminated players
+
+**Files touched:** Primarily `apps/web` presentation — likely `apps/web/app/match/[code]/page.tsx` (an explicit "you are eliminated — spectating" branch) and `apps/web/components/orders/OrderComposer.tsx` (already has a `living.length === 0` branch, but it's currently generic, not spectator-specific copy).
+
+**What `projectView()` returns for an eliminated player — traced exactly:**
+
+- `me.eliminated` → `SelfView.eliminated = true` (`projectView.ts` line 71).
+- `visibleNodesFor()` (`packages/engine/src/fog/visibility.ts`) computes visible nodes only from **living** agents (`if (!a.alive) continue`) — an eliminated player (all agents dead) with no team (`teams: false` today) gets an **empty** `visibleNodes: {}`. The board effectively has no runtime overlays for any node.
+- `legalOrders()` (`packages/engine/src/legalOrders.ts` line 32) returns `[]` unconditionally once `self.eliminated` is true, for every agent.
+- `opponents: OpponentPublicInfo[]` is built from **all** `playerOrder` entries except the viewer (`projectView.ts`) — an eliminated player still sees every other player's public info, unaffected by their own elimination.
+- `burnTracks`, `signals`, `history` continue to be delivered per the same `visionGroup()` (self only, no team) — so a spectator continues to receive the public branch of `filterEvents()` (round narrative, `PLAYER_ELIMINATED`, `MATCH_ENDED`, anonymized burns/contests they aren't part of) but nothing private.
+
+**What `apps/party` and `apps/web` do today when a player is eliminated — traced exactly:**
+
+- **`apps/party` does nothing special.** `sendViews`/`sendResolved` in `apps/party/src/broadcast.ts` iterate `room.getConnections()` and call `projectView()` for every bound seat unconditionally — an eliminated player's connection keeps receiving `VIEW`/`ROUND_RESOLVED`/`CLOCK`/`OPPONENT_COMMITTED` frames exactly like a live player, for the rest of the match. No disconnection, no special message type, no room-side branch exists for elimination.
+- **`apps/web` degrades gracefully but silently.** `livingAgents` computes to `[]`; `OrderComposer` renders "No living agents — nothing to order." (a generic empty state, not spectator-aware copy); `Board` renders with an empty `visibleNodes`, so it shows bare map topology with no informant/dossier/blockade markers; `RoundClock`, `SubmittedCount`, `LockedInRow`, and (once built) the roster/signals/burn-track panels all continue to render normally, since they read only public/self fields that remain populated.
+
+**Conclusion: the server-side spectator mechanism already exists and needs no protocol or engine change.** v1.1's spectator work is: (1) detect `view.self.eliminated` in the match route and render an explicit "You were eliminated — watching the rest of the match" state instead of the generic empty-composer message, and (2) confirm/polish that the resulting near-blank board plus the new roster/signals/burn-track surfaces (Features 3–4) constitute a coherent spectator experience — because those are the *only* things left for a spectator to look at once `visibleNodes` goes empty.
+
+**Fog-of-war check:** clean — a spectator's view is already *more* restricted than a live player's (empty `visibleNodes`), never less. No new field, no new message.
+
+---
+
+### 7. Host match settings in the lobby
+
+This is the other feature with a genuine protocol/server gap, and it is more significant than the others.
+
+**`apps/party/src/CLAUDE.md` documents `settings.ts` as "host-only lobby settings; validation and lock-on-start" and `docs/ARCHITECTURE.md` §5 documents a `SET_SETTINGS` client message — but neither exists in the shipped protocol.** Confirmed by reading `packages/shared/src/protocol.ts` in full: `clientMessageSchema`'s discriminated union has exactly `CREATE`, `JOIN`, `SET_READY`, `SET_CODENAME`, `SUBMIT_ORDER`, `SUBMIT_LOADOUT`, `SET_SEAT_COUNT`, `KICK`, `CHAT_SEND` — **no `SET_SETTINGS`.** `apps/party/src/handlers.ts` has no `handleSetSettings`. `apps/party/src/settings.ts` contains only `buildMatchConfig()` (which hardcodes every field) and `startMatch()` — no host-settings *mutation* logic at all, despite its `CLAUDE.md`-documented role.
+
+**Current hardcoded values, confirmed in `apps/party/src/settings.ts` `buildMatchConfig()`:**
+
+```
+agentsPerPlayer: 1,       // D-02 — comment cites a past phase decision
+mapId: 'duel-12',         // D-03 — "the only key in MAPS"
+roundTimerSeconds: 90,    // D-04
+pausesPerPlayer: 0,
+roundLimit: 14,
+dossierCount: 2,
+startingIntel: 4,
+blockadeMode: 'MIXED',
+rulesetId: 'default',
 ```
 
-- `LOBBY`: join code + public listing active, `SET_SETTINGS`/`SET_SEAT`/host-kick apply, ready-up tracked, countdown starts once ≥50% of filled seats are ready (per `PROJECT.md`).
-- `LOADOUT`: seats locked, each player edits their 10-card loadout; this is the same deckbuilder component reused in-lobby per the existing "Key Decision" that deck editing and the home-page deckbuilder are one system.
-- `IN_GAME`: `gameState = createMatch(config, seed)` is created exactly once at this transition; from here on `GameState` is the only mutable object and every mutation goes through `@berlin/engine`. This is the one moment `apps/party` calls into engine's "create" boundary — everything before it is lobby bookkeping the engine never sees.
-- `ENDED`: room stays alive briefly for the result screen / reconnect grace period, then the Durable Object can be allowed to evict (no persistence needed for v1, matching the "no accounts" constraint).
+**What the engine and bots already honor, independent of any UI:** every one of these is a plain field on `MatchSettings` (`packages/shared/src/settings.ts`) that `createMatch()` (`packages/engine/src/createMatch.ts`) already consumes correctly — `agentsPerPlayer` controls how many `AgentState`s are seeded per seat; `mapId` is looked up via `getMap()`; `dossierCount` drives `placeDossiers()`; `blockadeMode` drives `rollBlockadeSchedule()` (`OFF`/`ANNOUNCED`/`RANDOM`/`MIXED`, confirmed as a 4-way branch); `roundLimit` bounds the blockade roll loop and (per `docs/GAME_DESIGN.md`) the round-limit win condition. `packages/ai/sim/match.ts`'s `runMatch()` already accepts `Partial<MatchSettings>` overrides and `packages/ai/sim/run.ts`'s CLI already exposes `--agents`, `--players`, `--ruleset`, `--dossiers` flags that exercise these same fields. **None of this needs an engine or AI change — the settings plumbing on the "consume" side is complete and already balance-tested via the sim harness.** The gap is entirely "host sets it in the lobby, and it reaches `buildMatchConfig()`."
 
-This keeps `@berlin/engine` and `@berlin/ai` completely uninvolved in lobby mechanics — join codes, ready flags, host kick, and the public-list heartbeat are pure `apps/party` concerns, never touching the pure-function boundary. It also means reconnection is trivial in both phases: rejoin the same room id, get a full `RoomState` (lobby) or `VIEW` (match) snapshot, you're current — no separate reconnect logic per phase.
+**Data flow to build, LOBBY → `startMatch` → `createMatch`:**
 
-### Decision 2: A second, singleton PartyKit party for the public lobby list
+1. Add `SET_SETTINGS` to `clientMessageSchema` in `packages/shared/src/protocol.ts` — payload `{ type: 'SET_SETTINGS', settings: Partial<Pick<MatchSettings, 'agentsPerPlayer' | 'roundTimerSeconds' | 'roundLimit' | 'blockadeMode' | 'dossierCount'>> }` (mapId is likely host-*derived* from seat count rather than freely chosen — see Feature 8 below — so it may not belong in this payload at all; a per-field allow-list, not the whole `MatchSettings` shape, is the safer wire contract, mirroring how `SET_SEAT_COUNT` carries one bounded field rather than a whole settings blob).
+2. Add a matching field to `RoomState` (`apps/party/src/state.ts`) — e.g. `pendingSettings: Partial<MatchSettings>` — populated only in `LOBBY`/`LOADOUT` phase, mirroring `setLoadout()`'s phase guard.
+3. New `handleSetSettings()` in `apps/party/src/handlers.ts`, modeled exactly on `handleSetSeatCount()`: resolve the acting seat via `seatFor(connectionId)`, compare `seat.playerId === state.hostPlayerId` (never trust a role flag in the payload — `apps/party/CLAUDE.md` rule 5), validate bounds server-side (the wire schema's own bounds are defence in depth, not the enforcement — same pattern `canSetSeatCount()` establishes), reject with an explicit message on non-host or bad value, otherwise store and broadcast a `ROOM_STATE` update (settings likely need to be visible in `LobbySnapshot` too, meaning `lobbySnapshotSchema`/`toSnapshot()` in `state.ts` need a `settings` field alongside `seats`).
+4. `apps/party/src/settings.ts`'s `buildMatchConfig()` reads `state.pendingSettings` (falling back to today's hardcoded defaults for any field the host never touched) instead of hardcoding every value — this is the one function that currently owns every hardcoded literal and is the correct single seam to change.
+5. `startMatch()` (same file) is otherwise unchanged — it already calls `buildMatchConfig()` then `createMatch()`.
 
-The "join by code" path needs nothing beyond the match room itself (client connects directly to `party=match, id=joinCode-resolved-matchId`). The "browse public open lobbies" path needs a **directory** — something that knows about every currently-open match room, independent of any single match room's lifecycle. Model this as PartyKit's multi-party feature, not as a database table:
+**Fog-of-war check:** `MatchSettings` is *public* lobby data by design (`docs/GAME_DESIGN.md` §2 calls these "the host configures in the lobby") — it is not hidden state, so exposing it via `ROOM_STATE`/`LobbySnapshot` is not a fog change. The only care needed: don't let a non-`SET_SETTINGS` path (e.g. reusing `SET_SEAT_COUNT`'s existing count field for `mapId` selection) create two divergent ways to mutate settings — keep it to the one new message, matching every other host-only message's existing one-message-one-mutation pattern.
 
-- `party=lobbies, id="index"` — a single well-known room, always the same id, that every client can subscribe to on the home page to receive a live list of open lobbies (`{ matchId, joinCode, hostName, seatsFilled, seatsTotal, phase: "LOBBY" }[]`).
-- Each match room announces itself to the directory room on phase transitions that matter (`LOBBY` created → add; seat count/host name changes → update; `phase` leaves `LOBBY` or room closes → remove). This is a same-Worker, same-deployment call — PartyKit rooms can address each other via the platform's internal room-to-room fetch, so no external HTTP round trip or extra infra is needed.
-- The directory room holds this list in memory only (a `Map`), consistent with the "no accounts, no persistence for v1" constraint — a restart of the directory room just means the list rebuilds as match rooms reconnect/re-announce, which is an acceptable v1 tradeoff (flag this as a known gap, not a blocker).
+**Sequencing note for planners:** this is the feature that changes what "2-agent play" actually means for humans in production. Today `agentsPerPlayer` is hardcoded to `1`, so the composer's cross-agent Intel bug (Feature 1) is currently *latent* — it only manifests once a real host sets `agentsPerPlayer: 2`. That is the concrete reason the prompt's suggested ordering ("settings before multi-agent composer polish") is correct, not just a general instinct: turning on the settings UI is what makes the two-Intel-pool bug observable and matters for.
 
-This is the practice that keeps the two concerns cleanly separated: **lobby state is per-match, ephemeral, and owned by the match room; the directory is a thin, separately-scoped index of lobbies, not a database and not part of `GameState`.**
+---
 
-## Recommended Project Structure
+### 8. FFA-16 and FFA-18 maps
 
-```
-apps/party/src/
-├── index.ts              # exports both Party.Server classes (match, lobbies) for the platform to route
-├── match/
-│   ├── MatchRoom.ts       # Party.Server class: onStart, onConnect, onMessage, onAlarm, onClose
-│   ├── state.ts           # RoomState shape, phase transitions (LOBBY→LOADOUT→IN_GAME→ENDED)
-│   ├── handlers/
-│   │   ├── lobby.ts       # SET_SETTINGS, SET_SEAT, kick, ready-up, countdown (engine untouched)
-│   │   ├── loadout.ts     # SUBMIT_LOADOUT validation (calls engine's loadout validator)
-│   │   ├── orders.ts      # SUBMIT_ORDER, RETRACT_ORDER → submitOrder() from @berlin/engine
-│   │   └── pause.ts       # REQUEST_PAUSE / ANSWER_PAUSE unanimity poll
-│   ├── botRunner.ts       # calls @berlin/ai per bot seat, pads latency 1.5–4s
-│   ├── clock.ts           # onAlarm-driven round deadline, auto-Hold on expiry
-│   └── directoryClient.ts # thin wrapper: announce/update/remove this room in the lobbies directory
-└── lobbies/
-    └── LobbiesRoom.ts     # Party.Server singleton: in-memory Map<matchId, LobbySummary>, broadcasts on change
-```
+**Files touched:**
 
-### Structure Rationale
+| File | New/Modified | Change |
+|---|---|---|
+| `packages/engine/src/content/maps/ffa16.ts` | New | 16-node map, following `duel12.ts`'s exact `RawNode`/`RawEdge` → `build(): MapDefinition` pattern. Already named and scoped in `packages/engine/src/content/CLAUDE.md`'s "Expected files" table as `maps/ffa-16.ts` — this is anticipated, not novel, structure. |
+| `packages/engine/src/content/maps/ffa18.ts` | New | Same, 18 nodes, per `content/CLAUDE.md`. |
+| `packages/engine/src/content/index.ts` | Modified | `MAPS: Record<string, MapDefinition>` currently has exactly one key, `'duel-12'`. Add `'ffa-16'` and `'ffa-18'`. |
+| `apps/party/src/settings.ts` `buildMatchConfig()` | Modified | Currently hardcodes `mapId: 'duel-12'` with the comment "the only key in MAPS." Needs a `mapId` selection by seat count (e.g. 1–2 players → `duel-12`, 3 → `ffa-16`, 4 → `ffa-18`), unless Feature 7's settings UI exposes it as an explicit host choice — either way this is the call site to change. |
+| `packages/ai/sim/run.ts` | Modified | No `--map` CLI flag exists today (confirmed — `parseArgs()` has `matches`/`agents`/`players`/`ruleset`/`difficulty`/`seed`/`dossiers`/`csv` only). `runMatch()` in `packages/ai/sim/match.ts` already forwards `Partial<MatchSettings>` overrides, so adding `--map` is a one-line `parseArgs`/`main()` change, not a `match.ts` change. |
 
-- **`match/` vs `lobbies/` as sibling directories**, not nested — they are two different PartyKit party types with independent lifecycles (one instance per match vs. exactly one instance total), and conflating them in one class would blur the phase boundary this document argues for.
-- **`handlers/lobby.ts` never imports `@berlin/engine`.** This is the concrete enforcement of "lobby bookkeeping never touches the pure-function boundary" — a lint/import-boundary rule worth adding alongside the existing `shared ← engine ← ai ← apps` rule.
-- **`botRunner.ts` and `clock.ts` are separated from `handlers/orders.ts`** because they're both triggers for the same `resolveRound()` call (all-committed vs. deadline-expired) — keeping them distinct makes the "who calls resolveRound and why" question answerable by reading one file each, not by tracing a shared handler.
+**What `createMatch`/AI/sim/golden tests assume about map ids and sizes:**
 
-## Architectural Patterns
+- `createMatch()` (`packages/engine/src/createMatch.ts`) is fully map-agnostic: `getMap(settings.mapId)` throws only on an unregistered id; `homeNodeFor()` looks up `extractionPointFor(map, faction)` and falls back to any node of that `faction`'s sector, then `map.nodes[0]`; `placeDossiers()` picks `settings.dossierCount` unoccupied nodes at random via the seeded RNG; `rollBlockadeSchedule()` excludes only extraction-point nodes. **None of this hardcodes node count or topology** — a new map needs no `createMatch.ts` change, matching `content/CLAUDE.md`'s rule: "Adding a map should never require touching `apps/web`" (nor, per this read, `createMatch.ts`).
+- `packages/ai` has no map-specific logic either (confirmed: `packages/ai/CLAUDE.md` describes the belief filter/threat map/scoring pipeline entirely in terms of `PlayerView`/`map` data, never a hardcoded topology) — bots will play a new map correctly by construction, though their *balance* against it is unverified until swept.
+- **Golden replay fixtures are pinned to `duel-12` by construction, not by accident** — confirmed in `packages/engine/tests/golden.test.ts`: every fixture case calls `quickSettings({...})`, whose default `mapId` is `'duel-12'` (`packages/engine/src/createMatch.ts`'s `quickSettings()`). **Adding new maps does not require regenerating golden fixtures** — they never reference the new map ids, since `quickSettings()`'s default is unchanged. Golden fixtures would only need regeneration if a *rules* change altered `duel-12` resolution outcomes, per the existing "regenerate golden replay fixtures after an intentional rules change" convention in the root `CLAUDE.md`.
+- **`apps/party`'s `emptySeats()`/`SECTORS` already support up to 4 seats** (`SECTORS = ['RED', 'BLUE', 'GOLD', 'GREEN']`, `MAX_SEAT_COUNT = 4` in `apps/party/src/state.ts`) — no seat-count ceiling work is needed; only the map selection at match-build time.
 
-### Pattern 1: Phase-gated single room (lobby + match in one Durable Object)
+**How to validate a new map with `pnpm sim`:** once the `--map` flag is added to `run.ts`, `pnpm sim --matches 2000 --players 3 --map ffa-16` (or `--players 4 --map ffa-18`) runs the existing bot-vs-bot balance harness against the new map exactly like any ruleset sweep — win rates, match length, and action-mix profiling (`--profile`) are the same report machinery already used for `duel-12`. This is the correct place to re-derive `dossierCount` for 3–4 players, since `quickSettings()`'s current `dossierCount: 2` is explicitly tuned and measured for a **duel** (`createMatch.ts`'s own comment: "measured, not guessed... in a duel" — sim results at 92%/75%/63%/58%/28% win rates were specifically 2-player numbers). A 3–4 player match likely needs its own dossier-count sweep before the new maps ship as more than "technically playable."
 
-**What:** One PartyKit room per match, carrying a `phase` field that gates which handlers are legal and when `GameState` gets created.
-**When to use:** Any game where the lobby (seat/settings negotiation) and the match itself share a natural 1:1 lifecycle with the same group of players — true here since seats are fixed once the match starts.
-**Trade-offs:** Simpler reconnection and no state-migration bug class, at the cost of a slightly larger room class with phase-conditional logic. Worth it here; the alternative (two room types with a handoff) is strictly more code for no benefit at this player count (≤4).
+**Fog-of-war check:** clean — maps are pure public data (`x`/`y`, sector, edges), no hidden fields, no engine logic change.
 
-### Pattern 2: Singleton directory party for cross-room discovery
+---
 
-**What:** A second PartyKit party type with a fixed, well-known room id, used purely as a live index over other rooms' summary data.
-**When to use:** Whenever you need "browse open X" without standing up a database, and X's authoritative lifecycle already lives in per-instance rooms.
-**Trade-offs:** In-memory only means the list is best-effort (a directory-room restart temporarily empties the list until match rooms next announce) — acceptable for v1 given the no-persistence constraint; revisit if the public list needs to survive a directory-room cold-start with zero gaps (would need a Postgres-backed listing in a later phase, same moment accounts land).
+### 9. Declassified-dossier visual redesign
 
-### Pattern 3: Engine as a two-runtime import, never a network call
+**Files touched:** `apps/web/app/globals.css` (currently 35 lines, 5 `@theme` tokens: `--font-weight-body`, `--font-weight-heading`, `--color-surface`, `--color-surface-secondary`, `--color-border`, `--color-accent`, `--color-destructive` — confirmed by reading the file in full) plus every component file that hardcodes a hex color inline instead of using a token.
 
-**What:** `@berlin/engine` is imported directly by both the browser bundle (for predictive `legalOrders()`/cost preview) and the match room (for authoritative `submitOrder()`/`resolveRound()`) — same source, compiled twice, never called over the wire.
-**When to use:** Whenever the client needs instant, correct-feeling affordances (greyed-out illegal moves, live Intel cost) but the server must remain the sole authority. This is what makes a hidden-information game feel responsive without trusting the client.
-**Trade-offs:** Requires strict discipline that the engine stays free of I/O/randomness/`Date.now()` (already an enforced project rule) — any violation breaks silently in one runtime and not the other. Already validated and tested in this codebase (`packages/engine/tests/determinism.test.ts`, `fog-leak.test.ts`).
+**Scale of the hex-color problem, confirmed by search:** 28 files under `apps/web/components/` contain at least one literal `#RRGGBB`/`#RGB` value in a `className` or inline `style` (e.g. `#2563eb`, `#dc2626`, `#e2e8f0`, `#64748b`, `#0f172a`, `#f1f5f9`, `#ffffff` recur across `OrderComposer.tsx`, `BurnTrackPanel.tsx`, `MatchIntelDrawer.tsx`, `RoundHistoryPanel.tsx`, and others read above). These are Tailwind v4 arbitrary-value utilities (`text-[#2563eb]`, `bg-[#f1f5f9]`) — functional but bypassing the `@theme` token layer entirely, so a redesign today means a find-and-replace across ~28 files rather than a token swap.
 
-**Example — the one call site where lobby and match state actually meet:**
-```ts
-// apps/party/src/match/handlers/loadout.ts
-// Called only on the LOADOUT → IN_GAME transition, exactly once per match.
-function startMatch(room: RoomState): RoomState {
-  if (room.phase !== "LOADOUT" || !allLoadoutsSubmitted(room)) return room;
-  const config = buildMatchConfig(room.seats, room.loadouts); // pure, apps/party-local
-  const gameState = createMatch(config, room.matchId);        // @berlin/engine — seed derived, not random
-  return { ...room, phase: "IN_GAME", gameState };
-}
-```
+**Recommended restructuring (an `apps/web` change only, no `packages/*` impact):**
 
-## Data Flow
+1. Extend `globals.css`'s `@theme` block with the full "declassified dossier" palette as named tokens (e.g. `--color-manila`, `--color-ink`, `--color-stamp-red`, `--color-redacted`, plus the existing `surface`/`border`/`accent`/`destructive` re-themed to the new palette) so the token *names* stay semantic (`surface`, `border`, `accent`, `destructive`) while their *values* change once, in one file.
+2. Sweep every component's arbitrary hex utility (`text-[#...]`, `bg-[#...]`, `border-[#...]`, and the handful of inline `style={{ backgroundColor: ... }}` cases like `BurnTrackPanel.tsx`'s `SECTOR_SWATCH` usage) to the corresponding Tailwind theme utility (`text-surface`, `bg-border`, etc.) — this is mechanical once the tokens exist, but touches most of `apps/web/components/`.
+3. `SECTOR_SWATCH` in `apps/web/lib/burnTrack.ts` and its duplicate in `CardGrid.tsx` (noted in `burnTrack.ts`'s own comment: "copied verbatim from `apps/web/components/deck/CardGrid.tsx`") are the one existing case of a *duplicated* color table — worth consolidating into a single exported constant (e.g. `apps/web/lib/theme.ts`, already listed as an expected file in `apps/web/lib/CLAUDE.md` for "Theme token switching (CRT / high-contrast)" though it doesn't exist yet) rather than fixing the duplication ad hoc during the redesign sweep.
+4. `apps/web/lib/CLAUDE.md` already documents an expected `theme.ts` for token switching — v1.1 explicitly deselects the high-contrast theme (per `.planning/PROJECT.md` Out of Scope), so this file's scope in v1.1 is narrower than originally planned: it need only exist if the redesign wants a single named palette object, not a switcher.
 
-### Request Flow — Order Submission (unchanged from `docs/ARCHITECTURE.md`, re-confirmed correct)
+**Fog-of-war check:** not applicable — pure presentation, zero data-flow change.
 
-```
-User picks action (composer)
-    ↓
-apps/web calls legalOrders(view, agentId) from @berlin/engine  — LOCAL, predictive only
-    ↓ SUBMIT_ORDER (Zod-validated)
-apps/party/match handler → submitOrder(state, playerId, order)  — AUTHORITATIVE
-    ↓ (all committed OR onAlarm deadline)
-resolveRound(state) → { state', log: ResolutionEvent[] }
-    ↓
-projectView(state', playerId) per seat
-    ↓ ROUND_RESOLVED { view, log }
-apps/web updates Zustand store, animates replay from log
-```
+---
 
-### Request Flow — Lobby (new; not previously specified as distinct from match flow)
+### 10. First Vercel deployment of `apps/web`
 
-```
-Home page → apps/web connects to `party=lobbies, id="index"` (read-only subscribe)
-    ↓ LOBBY_LIST { entries: LobbySummary[] }
-User clicks "create" → apps/web connects to `party=match, id=<new matchId>`
-    ↓ (room phase=LOBBY) → directoryClient announces to lobbies room
-User clicks "join by code" → apps/web resolves code → connects directly to `party=match, id=<matchId>`
-    ↓ SET_SEAT / ready-up / kick — all handled inside match room, engine untouched
-    ↓ ≥50% seats ready → countdown → phase=LOADOUT → phase=IN_GAME (createMatch called once)
-```
+**Files/config touched:**
 
-### State Management
+- `apps/web/next.config.ts` — confirmed minimal today (7 lines of actual config): `reactStrictMode: true` and a webpack `resolve.extensionAlias` shim so `.js`-suffixed relative imports resolve to `.ts`/`.tsx` in `next dev` (needed because the whole monorepo uses `verbatimModuleSyntax`-style explicit `.js` extensions). **This shim is webpack-specific** — if Vercel's build pipeline or a Turbopack default changes bundler, this needs re-verification; it's the one piece of existing config most likely to behave differently in a Vercel build than local `next dev`.
+- **Environment coupling is exactly one variable**, confirmed everywhere this is documented (`docs/ARCHITECTURE.md` §8, `apps/CLAUDE.md`, `.planning/PROJECT.md` Constraints): `NEXT_PUBLIC_PARTYKIT_HOST`, pointing at the already-live `berlin1988-party.maxmayermader.partykit.dev`. This needs to be set as a Vercel project environment variable; no other secret or config crosses this boundary.
+- **Workspace imports:** `apps/web` depends on `@berlin/shared` and `@berlin/engine` via the pnpm workspace (`packages/shared`, `packages/engine` in `pnpm-workspace.yaml`). Vercel's build needs to run in a context where pnpm workspace resolution works (Vercel supports pnpm monorepos natively via its "Root Directory" + auto-detected `turbo`/pnpm settings, but this needs an explicit Vercel project configuration step — e.g. Root Directory `apps/web`, and a build command that ensures `packages/shared`/`packages/engine` are built or at least type-resolvable before `next build` runs). This is an infra/CI concern, not a code change, but it is the one item flagged in `.planning/PROJECT.md` as the actual blocker: *"appears to be an environment/tooling gap (no `vercel` CLI / linked project available to the executing agent), not a product decision."*
+- No `apps/party` change is implied by this — it is already deployed and live on Cloudflare.
 
-- **Match room:** `RoomState.gameState` is the only mutable `GameState`, immutable-per-round (clone-modify-return via engine). Everything before `IN_GAME` (`seats`, `readyFlags`, `loadouts`) is plain room-local state, never touched by `@berlin/engine`.
-- **Lobbies directory room:** A flat `Map<matchId, LobbySummary>`, updated only by announce/update/remove messages from match rooms — never reads `GameState`, never needs fog-of-war logic (it only ever holds public summary fields).
-- **Browser:** Two independent client-side slices — a lobby-list subscription (home page) and a per-match `PlayerView` + local `RoomState` snapshot (in-lobby / in-match), both in Zustand, cleared when navigating away from a match.
+**Fog-of-war check:** not applicable.
 
-## Build Order Implications
+---
 
-The dependency chain for this milestone, in the order components must exist to unblock the next:
+## Anti-Patterns to Avoid in v1.1 (specific to this codebase, not generic)
 
-1. **Match room skeleton with phase state machine** (`RoomState`, `LOBBY`/`LOADOUT`/`IN_GAME`/`ENDED`, `onConnect`/`onMessage` scaffolding) — everything else in `apps/party` depends on this shape existing first, since lobby handlers and order handlers both read/write the same `RoomState`.
-2. **Lobby handlers** (`SET_SETTINGS`, `SET_SEAT`, kick, ready-up, countdown) — depends on 1 only; does not depend on `@berlin/engine` at all, so this can be built and demoed (lobby UI, join-by-code, ready-up) before any match logic exists. Good candidate for an early phase since it's pure UI + room-state plumbing with no engine risk.
-3. **Loadout/deckbuilder wiring** — depends on 2 (needs seats locked) and reuses the same component in both the home-page deckbuilder and in-lobby class-editing flows (per existing Key Decision) — build the deckbuilder component once, mount it twice.
-4. **Match start + order submission + resolution wiring** — depends on 1–3; this is where `@berlin/engine`'s `createMatch`/`submitOrder`/`resolveRound`/`projectView` actually get called from `apps/party` for the first time in this milestone. Highest-risk integration point (four-player timing, simultaneous commit, fog projection over the wire) — sequence this after the lower-risk lobby/UI work is proven end-to-end on the wire.
-5. **Bot runner** — depends on 4 (needs a working round-resolution loop to slot into) but is otherwise independent of the human order path; can be built in parallel with UI polish once 4 lands, since `@berlin/ai` already exists and is tested.
-6. **Lobbies directory room + public list UI** — depends on 1 (needs match rooms to announce from) but not on 3/4/5; can be built any time after match rooms exist in `LOBBY` phase, in parallel with loadout/match work.
+### Anti-Pattern: Building a second `ResolutionEvent[]` renderer for the map
 
-**Sequencing takeaway for the roadmap:** lobby mechanics (2, 3, 6) are lower-risk and engine-independent — they can be a phase (or several) on their own, proving the wire protocol and PartyKit room lifecycle before the harder simultaneous-order/resolution phase. The order-submission and resolution wiring (4) is the phase most likely to need deeper research or a spike, given `CONCERNS.md` already flags untested real-time 4-action timing under load.
+**What people might do:** write a fresh event-loop/animation-state-machine inside `Board.tsx` or a new `ResolutionReplay.tsx` that independently walks `view.lastRound`.
 
-## Scaling Considerations
+**Why it's wrong:** `apps/web/lib/CLAUDE.md` rule 5 and an existing cross-file test already enforce "one source of truth" for event text; `uiStore.ts`'s `reveal` cursor is already the single global timeline cursor, shared by every mounted `StepThrough`. A second, map-side cursor advancing independently would desync from the text log the instant a player clicks "Next" — the two would show different rounds' events at the same moment.
 
-| Scale | Architecture Adjustments |
-|-------|--------------------------|
-| 1–4 players, single match (v1 target) | Current design as specified — no changes needed. One Durable Object per match easily handles 4 WebSocket connections and a ~60s round cadence. |
-| Many concurrent matches | No change to per-match architecture — PartyKit's model is "one isolated Durable Object per room," so concurrent matches don't share load or state by construction. The only new pressure is on the singleton `lobbies` directory room, which fans out updates to every home-page visitor; if that list grows large, throttle/batch directory broadcasts rather than pushing on every seat-count change. |
-| Persistent accounts / cross-device (later milestone, out of scope now) | This is where Neon Postgres (already planned for "Phase 6+" in the existing docs) enters — match history, profiles, durable lobby listings surviving directory-room restarts. Does not change the match-room architecture, only adds a write-behind path from room state to Postgres at match end. |
+**Do this instead:** derive map effects from the exact same `revealedEvents(log, reveal)` slice `StepThrough` already computes (see Feature 5 above).
 
-### Scaling Priorities
+### Anti-Pattern: Inferring an opponent's movement path from public node events
 
-1. **First real risk is not scale, it's timing correctness at n=4** — simultaneous 2-actions-per-agent submission, deadline handling, and reconnection mid-round. This is a correctness problem, not a scale problem, and should be treated as the highest-research-priority phase regardless of eventual traffic.
-2. **Second, if it ever matters:** the lobbies directory room's broadcast fan-out, which is the one component in this design that doesn't get isolation "for free" from PartyKit's per-room model — worth a note in the roadmap, not an immediate mitigation.
+**What people might do:** animate an opponent agent "walking" to the `nodeId` of a `STRIKE_FIRED`/`AGENT_BURNED`/`CONTEST` event, inventing a start point from the previous round's last-known public location.
 
-## Anti-Patterns
+**Why it's wrong:** this reconstructs hidden state (an opponent's position/path) from a public breadcrumb — precisely the failure mode `docs/ARCHITECTURE.md` §4.1 and the fog-leak test suite exist to prevent, even though it happens entirely client-side and touches no `PlayerView` field. A leak doesn't require a schema change to be a leak.
 
-### Anti-Pattern 1: Splitting "lobby room" and "match room" into two PartyKit room types with a handoff
+**Do this instead:** render public events as anonymous node-level markers only ("something happened here"), never as a path with an inferred origin.
 
-**What people do:** Create a `party=lobby` room for pre-match negotiation, then spin up a separate `party=match` room and serialize/transfer lobby state into it when the match starts.
-**Why it's wrong:** Doubles the reconnection logic, introduces a state-migration bug class (what if a player reconnects mid-handoff?), and duplicates seat/settings types across two message protocols for no benefit at ≤4 players.
-**Do this instead:** One room per match with an internal `phase` field (Decision 1, above). Reconnection is always "rejoin this room id, get the current snapshot," regardless of phase.
+### Anti-Pattern: Composing agent 2's order preview against `view.self.intel` unmodified
 
-### Anti-Pattern 2: Building the public lobby list as a database query
+**What people might do:** wire the new full composer straight to `legalOrders(view, agentId, prefix)` for both agents without accounting for the other agent's already-accepted order this round.
 
-**What people do:** Reach for Postgres/a REST endpoint to list open matches, because "that's what you do for a directory."
-**Why it's wrong:** Adds a persistence layer and a deploy dependency this project has explicitly deferred (no accounts, no cross-device sync for v1), for data that's inherently ephemeral (a lobby that's been open 10 minutes with no match started).
-**Do this instead:** A singleton PartyKit room (Decision 2) as a live in-memory index, updated by the match rooms themselves. Add Postgres only when accounts/persistence land in a later milestone.
+**Why it's wrong:** confirmed above — this is exactly the latent bug already present in the shipped composer, currently invisible only because `agentsPerPlayer` is hardcoded to 1.
 
-### Anti-Pattern 3: Letting lobby handlers reach into `GameState` "just to check something early"
+**Do this instead:** the client-side committed-spend subtraction described in Feature 1, using a newly-exported pure cost calculator mirroring `submitOrder.ts`'s private `intelCostOf()`.
 
-**What people do:** During the `LOBBY`/`LOADOUT` phase, a handler peeks at engine internals (e.g., calls a "preview" version of `createMatch` to show projected seed/map info) because it's convenient.
-**Why it's wrong:** Reintroduces exactly the coupling this codebase's dependency-direction rule (`shared ← engine ← ai ← apps`) and purity rule exist to prevent — lobby code should never need engine code to exist before `IN_GAME`, and any exception makes "when does GameState first exist" ambiguous, which breaks the golden-replay/determinism testing story (`(seed, config, orders)` must fully determine a match from a single, well-defined creation point).
-**Do this instead:** Keep all pre-`IN_GAME` previews (map thumbnail, ruleset summary, deck legality) as pure `apps/party`/`apps/web` logic reading static `content/` data directly, not through `createMatch`.
+### Anti-Pattern: Adding a whole `MatchSettings` blob to the wire for `SET_SETTINGS`
 
-## Integration Points
+**What people might do:** `z.object({ type: z.literal('SET_SETTINGS'), settings: matchSettingsSchema })`, letting the client submit (and the server trust) every field including `seats`/`mapId` wholesale.
+
+**Why it's wrong:** every existing host-only message (`SET_SEAT_COUNT`, `KICK`) carries exactly one bounded, purpose-built field and re-derives everything else server-side — this is a deliberate, repeated pattern (`apps/party/CLAUDE.md` rule 5) precisely so a client can never smuggle in a field it shouldn't control (e.g. `seats`, which is entirely room-derived).
+
+**Do this instead:** a narrow, explicit allow-list payload (see Feature 7), matching the existing message shapes.
+
+---
+
+## Integration Points Summary
+
+### Internal Boundaries Touched by v1.1
+
+| Boundary | v1.1 change | Fog/security review needed? |
+|---|---|---|
+| `apps/web` ↔ `@berlin/engine` (`legalOrders`) | New: read full output, not a filtered subset | No — same call, same data, just used completely |
+| `apps/web` ↔ `@berlin/engine` (new cost export) | New pure function, exported from `packages/engine/src/costs.ts` / `index.ts` | No — pure calculator over already-client-held data |
+| `apps/web` ↔ `apps/party` (protocol) | New `SET_SETTINGS` client message; `LobbySnapshot` gains a `settings` field | Yes, but low-risk — `MatchSettings` is public lobby data by design, same tier as existing `ROOM_STATE` content |
+| `apps/web` ↔ `apps/party` (protocol) | No change for signals/roster/burn-tracks/replay/spectator — all already-delivered `PlayerView` fields | N/A |
+| `apps/party` ↔ `@berlin/engine` (`createMatch`) | `buildMatchConfig()` reads host-set values instead of literals | No — same `MatchSettings` shape, same `createMatch()` call |
+| `@berlin/engine` content ↔ `apps/party`/`apps/ai`/sim | Two new map data files registered in `MAPS` | No — pure data, existing `getMap()`/`createMatch()` already map-agnostic |
 
 ### External Services
 
 | Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| PartyKit / Cloudflare Durable Objects | `apps/party` deploys via `partykit deploy` (existing plan) — actively maintained under Cloudflare as of 2026, no sunset risk found in research | Confirms existing "Hosting: undecided → Cloudflare via PartyKit" note in `PROJECT.md` can be resolved: Cloudflare (via PartyKit) is the correct target, not a separate host |
-| Vercel | `apps/web`, `NEXT_PUBLIC_PARTYKIT_HOST` is the only environment coupling (per existing docs) | No change; PR previews point at a staging PartyKit host |
-| Neon Postgres | Deferred to a later milestone (accounts/persistence) | Not needed for lobby directory or match state in this milestone — see Anti-Pattern 2 |
+|---|---|---|
+| Vercel | Standard Next.js 15 App Router deploy, pnpm workspace monorepo | Root Directory must be set to `apps/web`; workspace packages (`@berlin/shared`, `@berlin/engine`) must resolve during build |
+| Cloudflare (via PartyKit) | Already live, unaffected by v1.1 | Only coupling is `NEXT_PUBLIC_PARTYKIT_HOST`, already documented |
 
-### Internal Boundaries
+---
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| `apps/web` ↔ match room | WebSocket (`PartySocket`), Zod-validated messages both directions | Existing protocol in `docs/ARCHITECTURE.md` §5 covers match messages; lobby messages (`SET_SETTINGS`, `SET_SEAT`, ready-up, kick) share the same socket/room, gated by `phase` |
-| `apps/web` (home page) ↔ lobbies directory room | WebSocket, subscribe-only for most clients | New boundary this research adds; lightweight, no auth needed since only public summary fields are exposed |
-| match room ↔ lobbies directory room | Room-to-room (same PartyKit deployment, internal call) | Announce/update/remove on phase-relevant changes only, not every message, to avoid unnecessary fan-out |
-| `apps/party` ↔ `@berlin/engine` / `@berlin/ai` | Direct in-process function calls (no network) | Only from `IN_GAME`-phase handlers onward; lobby handlers must not import either package (Anti-Pattern 3) |
+## Suggested Build Order
+
+This order is driven by three dependency facts established above, not by feature-list order:
+
+1. **`apps/web` → Vercel deployment should land first, or at least in parallel with the very first phase.** Every other feature's UAT ("play a real match, watch the replay, use every card") is far more trustworthy against a real deployed URL than local `next dev` — and this item is the one that has silently blocked verification for all of v1.0 (`.planning/PROJECT.md`: "kept Phase 1's phase-gate checkpoint... from ever running, carried across all of v1.0"). It has no dependency on any other v1.1 feature (the `next.config.ts` webpack shim and the one env var are the only things to verify), so there's no reason to sequence it last again.
+
+2. **Host settings (Feature 7) and maps (Feature 8) before the order-composer's multi-agent polish (part of Feature 1).** Established above: `agentsPerPlayer` is hardcoded to `1` today, which means the cross-agent Intel-preview bug in the composer is currently unobservable. Shipping the composer overhaul before settings exist risks looking correct in testing (1 agent, no cross-agent interaction possible) and then breaking the moment a host sets `agentsPerPlayer: 2` in production. Landing settings first (so `agentsPerPlayer: 2` and new maps are reachable) makes the composer's two-agent path testable as it's built, not after.
+
+   Within this group: settings (protocol + `apps/party` work) has no dependency on maps; maps (pure content + one `buildMatchConfig()` call-site change) has no dependency on settings. They can proceed in parallel, but both should land before the composer's two-agent Intel work is verified end-to-end.
+
+3. **Order composer completeness (every action/card, silencer purchase) next.** This is the largest single chunk of `apps/web` work and the one most directly blocking the milestone's stated core value ("every action and card usable"). It depends on nothing else in this list except the one new `packages/engine` cost-export, which is small and isolated. It should land before the animated replay, because the replay's own event stream (`ResolutionEvent[]`) is far more interesting to test once the composer can actually produce Wiretaps, Ambushes, Decoys, Strikes, and Bribes to replay — testing the replay against a composer that only ever produces `MOVE`/`HOLD` exercises a fraction of `filterEvents()`'s branches.
+
+4. **Own-status panel, signals log, roster, everyone's Burn Tracks.** These are independent, additive, low-risk components with zero data gaps — they can be built any time after (or even alongside) the composer, in any order among themselves, and are good candidates for parallelization across multiple contributors/agents since none of them touch a shared file with each other (only `MatchIntelDrawer.tsx` is shared between the roster/burn-track work and existing history tabs, and that's a small, mechanical addition of a tab/selector).
+
+5. **Animated map replay last among the gameplay features.** It has the highest design risk (the fog-safety anti-pattern above) and the most benefit from having a fully-featured composer already producing a rich variety of events to animate, plus the roster/signals surfaces already in place to cross-reference against ("who is this anonymous marker probably" reasoning a player does by combining the replay with the roster and signals log — those surfaces should exist first so the replay isn't the only source of truth being tested in isolation).
+
+6. **Spectator polish and the visual redesign can run throughout, or last.** Spectator mode needs no new mechanism (Feature 6's finding: `apps/party` already treats an eliminated player like any other connected seat) — it's a presentation branch that becomes more meaningful once the roster/signals/replay surfaces exist to spectate *with*, so sequencing it after those (or concurrently, since it touches almost entirely different files) is reasonable. The visual redesign is the most parallelizable of all — it's a mechanical token-and-sweep exercise across nearly every component file, so it's better run as a dedicated pass **after** the functional features land (to avoid every functional-feature phase also having to hand-author "declassified dossier" styling for its own new components, only to have the redesign pass re-touch the same files days later) — or, if bandwidth allows, run as a rolling convention applied to each new component as it's built, provided the token set (Feature 9, step 1) is established first, before any new component is written.
+
+**One sequencing constraint worth stating explicitly for the roadmapper:** Features 2–4, 6 (own-status, signals, roster, burn-tracks, spectator) have **no file overlap with the settings/maps work** and **no data dependency on the composer work** — they read `PlayerView` fields that exist today, unconditionally. If phase parallelization is available, this cluster is the safest to run fully in parallel with the settings/maps/composer track, since none of it can be broken by decisions made in that track.
+
+---
 
 ## Sources
 
-- [Party.Server (Server API) — PartyKit Docs](https://docs.partykit.io/reference/partyserver-api/) — MEDIUM confidence (official docs, cross-checked)
-- [Party.Server — New API for a programmable primitive — PartyKit blog](https://blog.partykit.io/posts/partyserver-api/) — MEDIUM confidence
-- [Scaling PartyKit servers with Hibernation — PartyKit Docs](https://docs.partykit.io/guides/scaling-partykit-servers-with-hibernation/) — MEDIUM confidence
-- [Persisting state into storage — PartyKit Docs](https://docs.partykit.io/guides/persisting-state-into-storage/) — MEDIUM confidence
-- [Scheduling tasks with Alarms — PartyKit Docs](https://docs.partykit.io/guides/scheduling-tasks-with-alarms/) — MEDIUM confidence
-- [Using multiple parties per project — PartyKit Docs](https://docs.partykit.io/guides/using-multiple-parties-per-project/) — MEDIUM confidence
-- [How PartyKit works — PartyKit Docs](https://docs.partykit.io/how-partykit-works/) — MEDIUM confidence
-- [PartyKit is joining Cloudflare! — PartyKit blog](https://blog.partykit.io/posts/partykit-is-joining-cloudflare/) — MEDIUM confidence (acquisition context)
-- [cloudflare/partykit releases — GitHub](https://github.com/cloudflare/partykit/releases) — MEDIUM confidence (confirms active maintenance into 2026)
-- `docs/ARCHITECTURE.md` (this repo) — HIGH confidence, primary source; existing project-specific design, code-verified against 69 passing tests
-- `.planning/codebase/ARCHITECTURE.md`, `.planning/codebase/STRUCTURE.md` (this repo) — HIGH confidence, generated from the actual codebase
+Every claim in this document is grounded in a direct read of the files listed below (this session), not inference from documentation alone, unless explicitly marked "per docs" or "per `CLAUDE.md`":
+
+- `packages/shared/src/view.ts`, `orders.ts`, `settings.ts`, `protocol.ts`, `enums.ts`
+- `packages/engine/src/legalOrders.ts`, `submitOrder.ts`, `costs.ts`, `cooldowns.ts`, `createMatch.ts`, `index.ts`, `graph.ts`
+- `packages/engine/src/fog/projectView.ts`, `filterEvents.ts`, `visibility.ts`
+- `packages/engine/src/resolution/arm.ts`
+- `packages/engine/src/content/index.ts`, `content/maps/duel12.ts`, `content/CLAUDE.md`
+- `packages/engine/tests/golden.test.ts`
+- `packages/ai/sim/run.ts`, `sim/match.ts` (grep-confirmed), `packages/ai/CLAUDE.md`, `sim/CLAUDE.md`
+- `apps/party/src/handlers.ts`, `room.ts`, `round.ts`, `broadcast.ts`, `bots.ts`, `state.ts`, `settings.ts`, `CLAUDE.md`
+- `apps/web/app/match/[code]/page.tsx`, `next.config.ts`, `globals.css`
+- `apps/web/components/orders/OrderComposer.tsx`, `ActionSlot.tsx`
+- `apps/web/components/board/Board.tsx`, `AgentToken.tsx`, `CLAUDE.md`
+- `apps/web/components/resolution/StepThrough.tsx`, `RoundHistoryPanel.tsx`
+- `apps/web/components/intel/BurnTrackPanel.tsx`, `apps/web/components/match/MatchIntelDrawer.tsx`
+- `apps/web/lib/orderDraft.ts`, `matchStore.ts`, `uiStore.ts`, `burnTrack.ts`, `format.ts`, `stepThrough.ts`
+- `docs/ARCHITECTURE.md`, `.planning/PROJECT.md`, `.planning/codebase/ARCHITECTURE.md`
+- Every `CLAUDE.md` in `apps/`, `packages/`, and their subdirectories (read via the environment's automatic context injection for files touched in this session)
 
 ---
-*Architecture research for: Berlin 1988 — realtime multiplayer hidden-movement web game (PartyKit + Next.js)*
-*Researched: 2026-08-18*
+*Architecture research for: Berlin 1988 v1.1 "Gameplay and UI Refinement"*
+*Researched: 2026-09-14*

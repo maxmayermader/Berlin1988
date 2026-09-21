@@ -1,4 +1,4 @@
-import type { LobbySeat, LobbySnapshot } from '@berlin/shared';
+import { DEFAULT_LOBBY_SETTINGS, type LobbySeat, type LobbySnapshot } from '@berlin/shared';
 import { describe, expect, it } from 'vitest';
 import {
   NOT_READY_BADGE_TEXT,
@@ -23,7 +23,14 @@ function seat(overrides: Partial<LobbySeat> & { index: number }): LobbySeat {
 }
 
 function snapshot(seats: LobbySeat[], startsAt: number | null = null): LobbySnapshot {
-  return { code: 'ABCDEF', phase: 'LOBBY', hostPlayerId: 'p0', startsAt, seats };
+  return {
+    code: 'ABCDEF',
+    phase: 'LOBBY',
+    hostPlayerId: 'p0',
+    startsAt,
+    seats,
+    settings: DEFAULT_LOBBY_SETTINGS,
+  };
 }
 
 describe('apps/web/lib/seatRows (pure view model)', () => {
