@@ -8,6 +8,7 @@ import { useChatStore } from './chatStore.js';
 import { markKicked } from './kicked.js';
 import { useLoadoutStore } from './loadoutStore.js';
 import { useMatchStore } from './matchStore.js';
+import { useSignalStore } from './signalStore.js';
 import { useUiStore } from './uiStore.js';
 
 /**
@@ -132,8 +133,10 @@ export function useRoomSocket(
       // rule 1); everything downstream reads the store, never the socket.
       if (message.type === 'VIEW') {
         useMatchStore.getState().setView(message.view);
+        useSignalStore.getState().ingest(message.view.matchId, message.view.signals);
       } else if (message.type === 'ROUND_RESOLVED') {
         useMatchStore.getState().setView(message.view);
+        useSignalStore.getState().ingest(message.view.matchId, message.view.signals);
         useMatchStore.getState().resetCommitted();
         // Round-scoped client state that must not survive into the next
         // order phase — a stale 'accepted' orderStatus or a still-filled

@@ -58,8 +58,10 @@ maps. Phase 5 remains the gate for anything verified against a real
 deployment, and Phase 10's human verification still has nothing to run
 against.
 
-**Nothing is committed.** All of the above is uncommitted working-tree
-changes on `main`.
+**2026-11-05:** Phases 8 and 9 and Phase 10's redesign were implemented
+directly as well (see the ROADMAP execution note of that date). Remaining
+for v1.1: Phase 5 (deploy `apps/web` to Vercel) and Phase 10's live
+human verification.
 
 **v1.1 phase order:** 5 Live Deployment → 6 Host Match Settings & Full-Size Maps → 7 Full Order Composer → 8 Own Status, Signals & Burn Visibility → 9 Resolution Replay & Spectating → 10 Declassified Dossier Redesign & Live Verification.
 Phase 8 has no data or file dependency on Phases 6-7 and may run in a parallel worktree alongside either.

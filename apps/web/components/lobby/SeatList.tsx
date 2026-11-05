@@ -47,12 +47,16 @@ export function SeatList({ snapshot, onToggleReady, myPlayerId = null, onKick }:
       {rows.map((row) => (
         <li
           key={row.index}
-          className="rounded border border-[#e2e8f0] bg-[#f1f5f9] px-4 py-2 text-base"
+          className={`rounded-[2px] border px-4 py-2.5 text-base ${
+            row.kind === 'OPEN'
+              ? 'border-dashed border-rule-strong/60 bg-manila-2/40'
+              : 'paper border-rule shadow-[1px_1px_0_0_var(--color-rule)]'
+          }`}
         >
           {row.kind === 'OPEN' ? (
             <>
-              <span className="font-semibold">Open Seat</span>
-              <span className="block text-sm">
+              <span className="font-bold">Open Seat</span>
+              <span className="block text-sm text-ink-muted">
                 An AI opponent will join when the match starts.
               </span>
             </>
@@ -87,7 +91,7 @@ export function SeatList({ snapshot, onToggleReady, myPlayerId = null, onKick }:
 function SeatRowBody({ row }: { row: SeatRow }) {
   return (
     <>
-      <span className="truncate">
+      <span className="truncate font-bold">
         {row.status === 'AI' ? (
           // 03-UI-SPEC.md: the AI readout replaces the bare badge entirely —
           // plain body-neutral text at the Label size (14px), deliberately
@@ -98,7 +102,11 @@ function SeatRowBody({ row }: { row: SeatRow }) {
         )}
       </span>
       <span
-        className={row.badgeText === READY_BADGE_TEXT ? 'font-semibold text-[#2563eb]' : 'text-[#64748b]'}
+        className={
+          row.badgeText === READY_BADGE_TEXT
+            ? 'label-caps shrink-0 rounded-[2px] border-2 border-ok px-1.5 py-0.5 text-ok'
+            : 'label-caps shrink-0 text-ink-muted'
+        }
       >
         {row.badgeText}
       </span>

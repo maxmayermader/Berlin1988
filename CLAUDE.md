@@ -2,7 +2,7 @@
 
 A 1–4 player Cold War hidden-movement game. Node-graph map of divided Berlin, simultaneous secret orders, 1–2 agents per player, 10-card loadouts of reusable abilities and passive insurance, and AI opponents with distinct personalities. Web app, TypeScript throughout, hosted on Vercel.
 
-**Status:** engine and AI complete and green (Phases 0, 1, 3 — 69 tests). `packages/shared`, `packages/engine` and `packages/ai` are implemented and tested; `apps/` is still a skeleton. Phase 2 (the browser UI) is next.
+**Status:** playable end to end. `packages/shared`, `packages/engine` and `packages/ai` are implemented and tested; `apps/party` (the room server) and `apps/web` (home, deckbuilder, lobby, match, replay, result) are built in the declassified-dossier look. What remains is deployment and live verification — see `.planning/ROADMAP.md` (Phases 5 and 10).
 
 ## Read these in order
 

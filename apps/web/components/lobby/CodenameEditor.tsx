@@ -28,7 +28,8 @@ export function CodenameEditor({ value, ready, onSubmit }: CodenameEditorProps) 
         const trimmed = draft.trim();
         if (trimmed.length > 0 && trimmed !== value) onSubmit(trimmed);
       }}
-      className="rounded border border-[#e2e8f0] px-3 py-2 text-base focus:border-[#2563eb] focus:outline-none disabled:opacity-50"
+      aria-label="Your codename"
+      className="paper min-h-11 rounded-[2px] border-2 border-rule-strong/60 px-3 py-2 text-base font-bold focus:border-accent disabled:opacity-60"
     />
   );
 }

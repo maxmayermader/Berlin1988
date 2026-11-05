@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { BurnEntry } from '@berlin/shared';
 import { BURN_TRACK_COPY, SECTOR_SWATCH, burnEntryLabel } from './burnTrack.js';
+import { SECTOR_COLOR } from './sectors.js';
 
 /**
  * Real behavioural tests for `burnEntryLabel` (a pure function of a
@@ -59,17 +60,16 @@ describe('apps/web/lib/burnTrack.ts SECTOR_SWATCH', () => {
     const cardGridSource = readFileSync(cardGridPath, 'utf8');
 
     expect(Object.keys(SECTOR_SWATCH).sort()).toEqual(['BLUE', 'GOLD', 'GREEN', 'RED']);
-    expect(SECTOR_SWATCH.RED).toBe('#dc2626');
-    expect(SECTOR_SWATCH.BLUE).toBe('#2563eb');
-    expect(SECTOR_SWATCH.GOLD).toBe('#ca8a04');
-    expect(SECTOR_SWATCH.GREEN).toBe('#16a34a');
+    // v1.1 dossier theme: one sector palette for the whole client, read
+    // from the theme tokens rather than copied hex values.
+    expect(SECTOR_SWATCH).toBe(SECTOR_COLOR);
+    expect(SECTOR_SWATCH.RED).toBe('var(--color-sector-red)');
+    expect(SECTOR_SWATCH.GREEN).toBe('var(--color-sector-green)');
 
-    // Cross-check against the source values CardGrid.tsx actually uses, so
-    // this test fails if the two palettes ever drift apart.
-    expect(cardGridSource).toContain("RED: '#dc2626'");
-    expect(cardGridSource).toContain("BLUE: '#2563eb'");
-    expect(cardGridSource).toContain("GOLD: '#ca8a04'");
-    expect(cardGridSource).toContain("GREEN: '#16a34a'");
+    // Cross-check that CardGrid.tsx draws from the same table, so this test
+    // fails if the two palettes ever drift apart.
+    expect(cardGridSource).toContain('SECTOR_COLOR');
+    expect(cardGridSource).toMatch(/from ['"]\.\.\/\.\.\/lib\/sectors\.js['"]/);
   });
 });
 
@@ -127,29 +127,24 @@ describe('apps/web/components/intel/BurnTrackPanel.tsx (static)', () => {
   });
 });
 
-describe('apps/web/components/match/MatchIntelDrawer.tsx Burn Track tab (static)', () => {
-  const path = fileURLToPath(new URL('../components/match/MatchIntelDrawer.tsx', import.meta.url));
+describe('apps/web/components/intel/RosterPanel.tsx Burn Track access (static)', () => {
+  const path = fileURLToPath(new URL('../components/intel/RosterPanel.tsx', import.meta.url));
   const source = readFileSync(path, 'utf8');
+  const rosterPath = fileURLToPath(new URL('./roster.ts', import.meta.url));
+  const rosterSource = readFileSync(rosterPath, 'utf8');
 
-  it("renders <BurnTrackPanel exactly once, passing the viewer's own track", () => {
+  it('renders <BurnTrackPanel exactly once, per roster row, passing that row\'s public track', () => {
     expect((source.match(/<BurnTrackPanel\b/g) ?? []).length).toBe(1);
+    expect(source).toContain('entries={row.burnTrack}');
   });
 
-  it('reads view.self.id and never iterates view.opponents (D-07: no opponent-track browsing this phase)', () => {
-    expect(source).toContain('view.self.id');
-    expect(source).not.toContain('view.opponents');
+  it('BURN-05: every player\'s track is reachable — rows are built from self AND every opponent', () => {
+    expect(rosterSource).toContain('view.self');
+    expect(rosterSource).toContain('view.opponents');
+    expect(rosterSource).toMatch(/view\.burnTracks\[/);
   });
 
-  it('contains both tab labels from the Copywriting Contract', () => {
-    expect(source).toContain('History');
-    expect(source).toContain('Burn Track');
-  });
-
-  it('still docks bottom-4 left-4 at h-96 w-80 p-6', () => {
-    expect(source).toContain('bottom-4');
-    expect(source).toContain('left-4');
-    expect(source).toContain('h-96');
-    expect(source).toContain('w-80');
-    expect(source).toContain('p-6');
+  it('never hands the panel anything but the track itself — no PlayerView prop', () => {
+    expect(source).not.toMatch(/<BurnTrackPanel[^>]*view=/);
   });
 });

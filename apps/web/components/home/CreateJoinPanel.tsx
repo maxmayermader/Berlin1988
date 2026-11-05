@@ -91,25 +91,45 @@ export function CreateJoinPanel() {
   const showUnknownCodeTone = state.status === 'error' && state.error === UNKNOWN_CODE_MESSAGE;
 
   return (
-    <div className="flex flex-col gap-8">
-      <Button pending={pending} onClick={onCreate}>
-        Create Game
-      </Button>
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2">
+        <Button pending={pending} onClick={onCreate} size="lg" block>
+          Create Game
+        </Button>
+        <p className="text-sm text-ink-muted">Opens a lobby with a join code. Any seat left empty gets an AI.</p>
+      </div>
 
-      <div className="flex gap-2">
+      <div className="flex items-center gap-3 text-ink-muted" aria-hidden="true">
+        <span className="h-px flex-1 border-t border-dashed border-rule-strong" />
+        <span className="label-caps">or</span>
+        <span className="h-px flex-1 border-t border-dashed border-rule-strong" />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <label className="sr-only" htmlFor="join-code">
+          Join code
+        </label>
         <input
+          id="join-code"
           value={joinInput}
           onChange={(event) => setJoinInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void onJoin();
+          }}
           placeholder="Enter join code"
-          className="flex-1 rounded border border-[#e2e8f0] px-3 py-2 text-base focus:border-[#2563eb] focus:outline-none"
+          autoComplete="off"
+          spellCheck={false}
+          className="min-h-11 min-w-0 flex-1 rounded-[2px] border-2 border-rule-strong bg-paper px-3 py-2 font-bold uppercase tracking-[0.3em] placeholder:font-normal placeholder:normal-case placeholder:tracking-normal placeholder:text-ink-muted focus:border-accent"
         />
-        <Button pending={pending} onClick={onJoin}>
+        <Button variant="ghost" pending={pending} onClick={onJoin}>
           Join Game
         </Button>
       </div>
 
       {state.status === 'error' && state.error && (
-        <p className={showUnknownCodeTone ? 'text-base' : 'text-base text-[#0f172a]'}>{state.error}</p>
+        <p className={`border-l-4 px-3 py-1.5 text-sm ${showUnknownCodeTone ? 'border-stamp text-stamp' : 'border-ink text-ink'}`}>
+          {state.error}
+        </p>
       )}
     </div>
   );

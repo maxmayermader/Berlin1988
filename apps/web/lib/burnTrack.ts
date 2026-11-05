@@ -1,4 +1,5 @@
 import type { BurnEntry, Sector } from '@berlin/shared';
+import { SECTOR_COLOR } from './sectors.js';
 
 /**
  * MATCH-07: pure Burn Track formatting — entry labels and copy constants,
@@ -15,16 +16,11 @@ import type { BurnEntry, Sector } from '@berlin/shared';
  * file conflict.
  */
 
-/** 02-UI-SPEC.md's fixed four-color palette, copied verbatim from
- *  `apps/web/components/deck/CardGrid.tsx` — a sector swatch is always
- *  paired with its uppercase text label, never color alone
+/** The theme's sector inks — the same table `CardGrid.tsx` and the board
+ *  read (lib/sectors.ts), so the palettes cannot drift. A sector swatch is
+ *  always paired with its shape and uppercase label, never color alone
  *  (apps/web/components/CLAUDE.md). */
-export const SECTOR_SWATCH: Record<Sector, string> = {
-  RED: '#dc2626',
-  BLUE: '#2563eb',
-  GOLD: '#ca8a04',
-  GREEN: '#16a34a',
-};
+export const SECTOR_SWATCH: Record<Sector, string> = SECTOR_COLOR;
 
 /** 04-UI-SPEC.md's Copywriting Contract, verbatim. */
 export const BURN_TRACK_COPY = Object.freeze({
@@ -56,4 +52,10 @@ export function burnEntryLabel(entry: BurnEntry): string {
     (segment): segment is string => segment !== null,
   );
   return segments.join(' · ');
+}
+
+/** BURN-05: the subtitle when the track being read is someone else's. The
+ *  track itself is identical either way — only whose it is changes. */
+export function burnTrackSubtitleFor(name: string, isSelf: boolean): string {
+  return isSelf ? BURN_TRACK_COPY.subtitle : `What the table has learned about ${name}.`;
 }

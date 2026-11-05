@@ -6,15 +6,18 @@ The SVG map of Berlin and the resolution replay. The centrepiece of the game.
 
 | File | Role |
 | :--- | :--- |
-| `Board.tsx` | The SVG viewport. Lays out nodes and edges from map data |
-| `MapNode.tsx` | One node: circle, label, sector shape, fog state, informant/dossier/decoy markers, **blockade overlay** |
-| `MapEdge.tsx` | One edge, styled by type — street (solid), tunnel (dashed green), checkpoint (double line) |
-| `AgentToken.tsx` | Your agents (1 or 2, visually distinct), and any rival momentarily revealed |
-| `SafehouseMarker.tsx` | Your one safehouse. Yours only — nobody else's is ever in the data |
-| `TrapMarker.tsx` | Your active ambushes and their remaining duration |
-| `TargetOverlay.tsx` | Legal-target highlighting while composing an order |
-| `ResolutionReplay.tsx` | Plays `ResolutionEvent[]` back as an animated timeline |
-| `ReplayControls.tsx` | Skip, scrub, replay-again |
+| `Board.tsx` | The SVG viewport. Fits its viewBox to the map's own node extents and stacks every layer below |
+| `BoardDefs.tsx` | Shared `<defs>`: one hatch pattern per sector, the sheet grid, arrowheads |
+| `Territory.tsx` | Voronoi district shading per sector (colour **and** hatch) and the Wall around East Berlin — public geometry only |
+| `MapNode.tsx` | One node: sector silhouette, label, fog state (faded when out of sight), informant/dossier/extraction markers, **blockade overlay** and announced closures |
+| `MapEdge.tsx` | One edge, styled by type — street (cased road), tunnel (dashed green arc), checkpoint (double line with a barrier) |
+| `AgentToken.tsx` | Your agents (1 or 2, numbered pins in your faction's ink); a burned pin stays struck out until the replay ends |
+| `OwnAssets.tsx` | Your safehouse, your live ambushes and decoys. Yours only — nobody else's is ever in the data |
+| `PlanOverlay.tsx` | ORDER-08: your composed orders as pencil routes (draft) or inked routes (locked by the room) |
+| `TargetOverlay.tsx` | Legal-target highlighting while composing an order — rings for moves, reticles for strikes |
+| `BeatOverlay.tsx` | The replay beat on the map: rings, arrow and stamped word for the one event being shown |
+
+The replay's controls and prose live in `components/resolution/StepThrough.tsx`; its beat model is `lib/replay.ts`.
 
 ## Why SVG and not canvas
 

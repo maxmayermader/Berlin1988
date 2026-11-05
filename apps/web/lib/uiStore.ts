@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { AgentId, NodeId, ResolutionEvent } from '@berlin/shared';
 import { emptyDraft, type OrderDraft } from './orderDraft.js';
-import { advance, initialReveal, type RevealState } from './stepThrough.js';
+import { advance, initialReveal, revealAll, type RevealState } from './stepThrough.js';
 
 /**
  * Session and UI state only — apps/web/CLAUDE.md rule 5. The projected view
@@ -53,6 +53,8 @@ interface UiStore {
   enterResolution: (log: readonly ResolutionEvent[]) => void;
   /** One more event revealed, per stepThrough.ts's `advance`. */
   advanceReveal: (log: readonly ResolutionEvent[]) => void;
+  /** REPLAY-02's skip: every event revealed at once. */
+  revealAllEvents: (log: readonly ResolutionEvent[]) => void;
   /** Continue to Round N — closes the step-through and returns to composing. */
   exitResolution: () => void;
 }
@@ -89,5 +91,6 @@ export const useUiStore = create<UiStore>((set, get) => ({
   enterResolution: (log) => set({ matchSubState: 'RESOLUTION', reveal: initialReveal(log) }),
   advanceReveal: (log) =>
     set((s) => ({ reveal: advance(s.reveal ?? initialReveal(log), log) })),
+  revealAllEvents: (log) => set({ reveal: revealAll(log) }),
   exitResolution: () => set({ matchSubState: 'ORDERS', reveal: null }),
 }));

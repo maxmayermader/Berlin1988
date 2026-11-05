@@ -82,7 +82,16 @@ export const useMatchStore = create<MatchStore>((set) => ({
   acceptedOrders: {},
   clock: { deadlineAt: null },
   setSnapshot: (snapshot) => set({ snapshot }),
-  setView: (view) => set({ view, clock: { deadlineAt: view.clock.deadlineAt } }),
+  // The engine never knows the time — `projectView` always sends
+  // `clock.deadlineAt: null` ("owned by the room, not the engine"). The
+  // deadline arrives only in CLOCK frames, so a VIEW must never erase one:
+  // the match route's own socket receives a VIEW on (re)join, after the
+  // lobby socket already received the round's CLOCK.
+  setView: (view) =>
+    set((s) => ({
+      view,
+      clock: view.clock.deadlineAt !== null ? { deadlineAt: view.clock.deadlineAt } : s.clock,
+    })),
   setCommitted: (playerId, committed, total) =>
     set((s) => ({ committed: { ...s.committed, [playerId]: { committed, total } } })),
   setOrderStatus: (agentId, status) =>

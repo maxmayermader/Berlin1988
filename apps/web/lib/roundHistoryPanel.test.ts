@@ -107,8 +107,11 @@ describe('RoundHistoryPanel.tsx — destructive stripe on a round that burned th
     const src = readRoundHistoryPanel();
     expect(src.includes("'AGENT_BURNED'")).toBe(true);
     expect(src.includes('selfId')).toBe(true);
-    expect(src.includes('border-l-4 border-l-[#dc2626]')).toBe(true);
-    expect(src.includes('bg-[#f1f5f9]')).toBe(true);
+    // v1.1 dossier theme: the stripe is the stamp-red token on the left
+    // edge of an otherwise ordinary paper row — a stripe, never a fill.
+    expect(src.includes('border-l-4 border-l-stamp')).toBe(true);
+    expect(src.includes('bg-stamp')).toBe(false);
+    expect(/className=\{`paper /.test(src)).toBe(true);
   });
 });
 

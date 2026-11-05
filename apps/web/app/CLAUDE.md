@@ -14,7 +14,7 @@ Next.js App Router — routes, layouts, and server-side data loading.
 | `/replay/[matchId]` | Client | Replay viewer over a stored `(seed, orders)` |
 | `/api/match` | Route handler | Create a match, mint player tokens |
 
-`layout.tsx` holds the theme provider and global CRT frame; `globals.css` holds the Tailwind v4 token definitions.
+`layout.tsx` loads the two typefaces (next/font) and sets the desk backdrop; `globals.css` holds the Tailwind v4 token definitions and the surface utilities (`manila`, `paper`, `stamp`, `redacted`, `label-caps`).
 
 ## Rules
 

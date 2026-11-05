@@ -4,18 +4,30 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { Action, AgentId, NodeId, ServerMessage } from '@berlin/shared';
 import { Board } from '../../../components/board/Board.js';
-import { LockedInRow } from '../../../components/hud/LockedInRow.js';
-import { RoundClock } from '../../../components/hud/RoundClock.js';
-import { SubmittedCount } from '../../../components/hud/SubmittedCount.js';
+import type { TokenSpec } from '../../../components/board/AgentToken.js';
+import { MatchHeader } from '../../../components/hud/MatchHeader.js';
+import { OwnKitPanel } from '../../../components/intel/OwnKitPanel.js';
+import { RosterPanel } from '../../../components/intel/RosterPanel.js';
+import { CasualtyReport } from '../../../components/match/CasualtyReport.js';
 import { MatchChat } from '../../../components/match/MatchChat.js';
-import { MatchIntelDrawer } from '../../../components/match/MatchIntelDrawer.js';
+import { MatchFile } from '../../../components/match/MatchFile.js';
+import { NodeInspector } from '../../../components/match/NodeInspector.js';
+import { SpectatorPanel } from '../../../components/match/SpectatorPanel.js';
 import { OrderComposer } from '../../../components/orders/OrderComposer.js';
 import { ResultScreen } from '../../../components/result/ResultScreen.js';
 import { StepThrough } from '../../../components/resolution/StepThrough.js';
+import { Folder } from '../../../components/ui/Folder.js';
 import { PageTransition } from '../../../components/ui/PageTransition.js';
+import { Stamp } from '../../../components/ui/Stamp.js';
 import { useChatStore } from '../../../lib/chatStore.js';
+import { eventContextFor } from '../../../lib/format.js';
 import { loadIdentity } from '../../../lib/identity.js';
 import { useMatchStore } from '../../../lib/matchStore.js';
+import { agentPlans } from '../../../lib/plannedPaths.js';
+import { beatFor, ownAgentsAt } from '../../../lib/replay.js';
+import { ownBurnsIn } from '../../../lib/roster.js';
+import { useSignalStore } from '../../../lib/signalStore.js';
+import { initialReveal, isComplete } from '../../../lib/stepThrough.js';
 import { intelAvailableFor, viewForComposing } from '@berlin/engine';
 import {
   actionForTarget,
@@ -63,6 +75,9 @@ export default function MatchPage() {
   const connectionStatus = useUiStore((s) => s.connectionStatus);
   const setConnectionStatus = useUiStore((s) => s.setConnectionStatus);
   const matchSubState = useUiStore((s) => s.matchSubState);
+  const reveal = useUiStore((s) => s.reveal);
+  const highlight = useSignalStore((s) => s.highlight);
+  const [inspectedNodeId, setInspectedNodeId] = useState<NodeId | null>(null);
 
   const clockDeadline = useMatchStore((s) => s.clock.deadlineAt);
   const matchChat = useChatStore((s) => s.messages.MATCH);
@@ -196,28 +211,38 @@ export default function MatchPage() {
   if (connectionStatus === 'lost') {
     return (
       <main className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-16">
-        <p className="text-base">{CONNECTION_LOST_COPY}</p>
+        <Folder tab="Line dead" surface="paper">
+          <p className="text-base">{CONNECTION_LOST_COPY}</p>
+        </Folder>
       </main>
     );
   }
 
   if (!view) {
     return (
-      <main className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-16">
-        <p className="text-sm">Connecting…</p>
+      <main className="mx-auto flex max-w-xl flex-col items-center gap-6 px-6 py-24 text-center">
+        <p className="font-display text-2xl tracking-[0.1em] text-on-desk">BERLIN 1988</p>
+        <p className="label-caps text-on-desk-muted">Connecting to the network…</p>
       </main>
     );
   }
 
+  const ctx = eventContextFor(view);
+  const agentLabels = ctx.agentLabels ?? {};
+
   // The terminal sub-state: reaching it is automatic — once view.outcome is
   // non-null the composer and the step-through are gone, replaced entirely
-  // by the result screen (this plan's <behavior>). No victory, score, or
-  // tie-break logic is computed here; ResultScreen reads only view.outcome.
+  // by the result screen. No victory, score, or tie-break logic is computed
+  // here; ResultScreen reads only view.outcome. The roster and the history
+  // stay available, so the table can read back how it ended.
   if (view.outcome !== null) {
     return (
-      <main className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-8">
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
         <ResultScreen view={view} />
-        <MatchIntelDrawer view={view} />
+        <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+          <RosterPanel view={view} />
+          <MatchFile view={view} ctx={ctx} />
+        </div>
       </main>
     );
   }
@@ -228,65 +253,156 @@ export default function MatchPage() {
   // this client sees it (packages/engine/src/resolution/index.ts).
   const firstEvent = view.lastRound[0];
   const resolvedRound = firstEvent?.type === 'ROUND_START' ? firstEvent.round : view.round;
+  const replaying = matchSubState === 'RESOLUTION';
+  const spectating = view.self.eliminated || livingAgents.length === 0;
+
+  // REPLAY-01: the board follows the same reveal cursor as the report, so
+  // the beat on the map is always the last line in the list.
+  const revealState = reveal ?? initialReveal(view.lastRound);
+  const revealedCount = revealState.revealed;
+  const currentEvent = replaying ? view.lastRound[revealedCount - 1] : undefined;
+  const beat = currentEvent ? beatFor(currentEvent) : null;
+  const replayComplete = isComplete(view.lastRound, revealState);
+
+  const tokens: TokenSpec[] = replaying
+    ? ownAgentsAt(view.self.agents, view.lastRound, revealedCount).map((r) => ({
+        id: r.agent.id,
+        index: view.self.agents.indexOf(r.agent),
+        nodeId: r.nodeId,
+        alive: r.alive,
+        dossiers: r.alive ? r.agent.dossiers : 0,
+      }))
+    : view.self.agents.flatMap((agent, index) =>
+        agent.alive ? [{ id: agent.id, index, nodeId: agent.nodeId, alive: true, dossiers: agent.dossiers }] : [],
+      );
+
+  // ORDER-08: every agent's composed or locked order, drawn on the map.
+  const drafts: Record<string, readonly (Action | null)[]> = {};
+  for (const [agentId, d] of Object.entries(draftByAgent)) drafts[agentId] = d.slots;
+  const plans = replaying || spectating ? [] : agentPlans(view.self.agents, drafts, acceptedOrdersRecord);
+  const lockedIds = new Set(
+    Object.entries(orderStatus)
+      .filter(([, status]) => status.state === 'accepted')
+      .map(([agentId]) => agentId),
+  );
+
+  const ownBurns = replaying && replayComplete ? ownBurnsIn(view.lastRound, view.self.id) : [];
+  const playersLeft = [view.self, ...view.opponents].filter((p) => !p.eliminated).length;
 
   return (
-    <PageTransition className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8 md:flex-row">
-      <div className="md:w-3/5">
-        <h2 className="mb-2 text-[20px] font-semibold leading-[1.2]">Berlin</h2>
-        <Board
-          map={view.map}
-          agents={livingAgents}
-          visibleNodes={view.visibleNodes}
-          activeBlockades={view.activeBlockades}
-          selectedNodeId={activeAgent?.nodeId ?? null}
-          // Only the pending option's own targets are highlighted, so the
-          // board never offers a node whose meaning is ambiguous (ORDER-07).
-          legalTargets={pendingOption && pendingOption.kind !== 'STRIKE' ? pendingOption.targets : []}
-          strikeTargets={pendingOption?.kind === 'STRIKE' ? pendingOption.targets : []}
-          onSelectNode={handleSelectNode}
-        />
-      </div>
-      <div className="md:w-2/5">
-        {matchSubState === 'RESOLUTION' ? (
-          <StepThrough
-            key={resolvedRound}
-            log={view.lastRound}
-            round={resolvedRound}
-            // Always false here — the outcome !== null case already
-            // returned the ResultScreen above, before this branch renders.
-            isFinal={false}
-          />
-        ) : (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-4">
-              <SubmittedCount view={view} />
-              <RoundClock deadlineAt={clockDeadline} />
+    <div className="flex min-h-dvh flex-col">
+      <MatchHeader
+        view={view}
+        displayRound={replaying ? resolvedRound : view.round}
+        clockDeadline={clockDeadline}
+        replaying={replaying}
+      />
+
+      <PageTransition className="mx-auto grid w-full max-w-[1680px] gap-5 px-3 py-5 sm:px-4 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[300px_minmax(0,1fr)_400px]">
+        {/* The city plan: the board, the node inspector, and the working file. */}
+        <section aria-label="Map" className="flex min-w-0 flex-col gap-5 lg:col-start-1 lg:row-start-1 xl:col-start-2">
+          <div className="paper relative rounded-[4px] p-2 shadow-sheet sm:p-3">
+            <div className="flex items-center justify-between gap-2 px-1 pb-1">
+              <h2 className="font-display text-base leading-none tracking-[0.06em]">
+                Stadtplan · {view.map.name}
+              </h2>
+              <span className="flex items-center gap-3">
+                <span className="label-caps text-[0.6rem] text-ink-muted">
+                  {replaying ? `Replay · round ${resolvedRound}` : spectating ? 'Watching' : `Round ${view.round}`}
+                </span>
+                <Stamp tilt={-3} className="hidden text-[0.65rem] opacity-70 sm:inline-block">
+                  Streng geheim
+                </Stamp>
+              </span>
             </div>
-            <LockedInRow view={view} />
-            <OrderComposer
-              view={composingView ?? view}
-              selectedAgentId={activeAgentId}
-              onSelectAgent={selectAgent}
-              draft={draft}
-              orderStatus={activeAgentId ? orderStatus[activeAgentId as string] : undefined}
-              intelAvailable={intelAvailable}
-              pendingOptionKey={pendingOptionKey}
-              onChooseOption={handleChooseOption}
-              onCancelOption={() => setPendingOption(null)}
-              onClearSlot={handleClearSlot}
-              onSubmit={handleSubmit}
-              onRetract={handleRetract}
+            <Board
+              map={view.map}
+              tokens={tokens}
+              faction={view.self.faction}
+              activeAgentId={replaying ? null : activeAgentId}
+              visibleNodes={view.visibleNodes}
+              activeBlockades={view.activeBlockades}
+              announcedBlockades={view.announcedBlockades}
+              round={view.round}
+              selfId={view.self.id}
+              safehouse={view.self.safehouse}
+              traps={view.self.traps}
+              decoys={view.self.decoys}
+              selectedNodeId={replaying ? null : (activeAgent?.nodeId ?? null)}
+              // Only the pending option's own targets are highlighted, so the
+              // board never offers a node whose meaning is ambiguous (ORDER-07).
+              legalTargets={!replaying && pendingOption && pendingOption.kind !== 'STRIKE' ? pendingOption.targets : []}
+              strikeTargets={!replaying && pendingOption?.kind === 'STRIKE' ? pendingOption.targets : []}
+              plans={plans}
+              highlight={highlight}
+              beat={beat}
+              beatKey={revealedCount}
+              onSelectNode={handleSelectNode}
+              onInspectNode={setInspectedNodeId}
             />
           </div>
-        )}
-      </div>
+          <NodeInspector view={view} nodeId={inspectedNodeId ?? activeAgent?.nodeId ?? null} />
+          <MatchFile view={view} ctx={ctx} />
+        </section>
+
+        {/* Orders, the replay, or the spectator's desk. Sticky beside the map. */}
+        <aside
+          aria-label={replaying ? 'Round report' : 'Orders'}
+          className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 xl:col-start-3 xl:row-span-1"
+        >
+          <div className="lg:sticky lg:top-4">
+            <Folder tab={replaying ? 'Round report' : spectating ? 'Observer' : 'Orders'} as="h2" bodyClassName="flex flex-col gap-4">
+              {replaying ? (
+                <>
+                  <StepThrough
+                    key={resolvedRound}
+                    log={view.lastRound}
+                    round={resolvedRound}
+                    // Always false here — the outcome !== null case already
+                    // returned the ResultScreen above, before this branch renders.
+                    isFinal={false}
+                    ctx={ctx}
+                  />
+                  <CasualtyReport map={view.map} burns={ownBurns} agentLabels={agentLabels} />
+                </>
+              ) : spectating ? (
+                <SpectatorPanel playersLeft={playersLeft} />
+              ) : (
+                <OrderComposer
+                  view={composingView ?? view}
+                  selectedAgentId={activeAgentId}
+                  onSelectAgent={selectAgent}
+                  draft={draft}
+                  orderStatus={activeAgentId ? orderStatus[activeAgentId as string] : undefined}
+                  lockedIds={lockedIds}
+                  intelAvailable={intelAvailable}
+                  pendingOptionKey={pendingOptionKey}
+                  onChooseOption={handleChooseOption}
+                  onCancelOption={() => setPendingOption(null)}
+                  onClearSlot={handleClearSlot}
+                  onSubmit={handleSubmit}
+                  onRetract={handleRetract}
+                />
+              )}
+            </Folder>
+          </div>
+        </aside>
+
+        {/* The dossier: who is still standing, and what the player holds. */}
+        <aside
+          aria-label="Dossier"
+          className="flex min-w-0 flex-col gap-5 lg:col-start-1 lg:row-start-2 xl:col-start-1 xl:row-start-1"
+        >
+          <RosterPanel view={view} />
+          {!spectating && <OwnKitPanel view={view} />}
+        </aside>
+      </PageTransition>
       <MatchChat
         messages={matchChat}
         onSend={handleSendChat}
         onSendPrompt={handleSendChatPrompt}
         error={chatError}
       />
-      <MatchIntelDrawer view={view} />
-    </PageTransition>
+    </div>
   );
 }

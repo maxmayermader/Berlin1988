@@ -12,7 +12,8 @@ React components. Presentational and interaction logic; no network calls (those 
 | `intel/` | Burn Track panels (all players **including your own**), signals log, informant reports, passive-card status, silencer stock |
 | `deck/` | Loadout builder: card grid, actives/passives balance readout, constraint validator, archetype presets |
 | `lobby/` | **Host settings panel** (agent count, timer, blockades, round limit), seat list, ready toggles, bot personality picker, invite link |
-| `ui/` | Primitives — button, panel, tooltip, dialog, CRT frame |
+| `ui/` | Primitives — button, folder (tabbed manila panel), stamp, banner, page transition |
+| `match/` | Match-page assemblies — the tabbed match file (intercepts / history / legend), node inspector, casualty report, spectator panel, chat dock |
 
 ## Rules
 

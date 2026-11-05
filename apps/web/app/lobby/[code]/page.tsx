@@ -3,6 +3,7 @@
 import { ALL_CARDS } from '@berlin/engine';
 import { clientMessageSchema } from '@berlin/shared';
 import type { ClientMessage, LobbySettings, LobbySnapshot, ServerMessage } from '@berlin/shared';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Deckbuilder } from '../../../components/deck/Deckbuilder.js';
@@ -13,6 +14,7 @@ import { ReadyCountdown } from '../../../components/lobby/ReadyCountdown.js';
 import { SeatCountControl } from '../../../components/lobby/SeatCountControl.js';
 import { SeatList } from '../../../components/lobby/SeatList.js';
 import { Button } from '../../../components/ui/Button.js';
+import { Folder } from '../../../components/ui/Folder.js';
 import { PageTransition } from '../../../components/ui/PageTransition.js';
 import { useChatStore } from '../../../lib/chatStore.js';
 import { loadIdentity } from '../../../lib/identity.js';
@@ -200,33 +202,46 @@ export default function LobbyPage() {
   const showDivergenceNotice = !editingLoadout && loadoutsDiverge(loadout, lastAcceptedCards);
 
   return (
-    <PageTransition className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-16">
-      <h2 className="text-[20px] font-semibold leading-[1.2]">Seats</h2>
+    <PageTransition className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <Link href="/" className="label-caps text-on-desk-muted hover:text-on-desk">
+            ← Berlin 1988
+          </Link>
+          <h1 className="font-display text-3xl leading-none text-on-desk sm:text-4xl">Briefing room</h1>
+        </div>
+        <InviteCode code={code} />
+      </header>
 
       {!snapshot ? (
-        <p className="text-sm">Connecting…</p>
+        <p className="label-caps text-on-desk-muted">Connecting…</p>
       ) : editingLoadout ? (
-        <Deckbuilder
-          loadout={loadout}
-          cards={ALL_CARDS}
-          onAdd={addCard}
-          onRemove={removeCard}
-          onLoadPreset={loadPreset}
-          saveStatus={saveStatus}
-          showReadyClearedBanner
-          onSave={handleSave}
-          onClose={closeEditor}
-        />
+        <div className="manila rounded-[4px] p-4 shadow-sheet sm:p-6">
+          <Deckbuilder
+            loadout={loadout}
+            cards={ALL_CARDS}
+            onAdd={addCard}
+            onRemove={removeCard}
+            onLoadPreset={loadPreset}
+            saveStatus={saveStatus}
+            showReadyClearedBanner
+            onSave={handleSave}
+            onClose={closeEditor}
+          />
+        </div>
       ) : (
-        <>
-          {mySeat && (
-            <CodenameEditor
-              value={mySeat.codename ?? ''}
-              ready={mySeat.ready}
-              onSubmit={renameCodename}
-            />
-          )}
-          <div className="flex flex-col gap-4">
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+          <Folder tab="Seats" as="h2" bodyClassName="flex flex-col gap-4 p-5">
+            {mySeat && (
+              <div className="flex flex-col gap-1.5">
+                <span className="label-caps text-ink-muted">Your codename</span>
+                <CodenameEditor
+                  value={mySeat.codename ?? ''}
+                  ready={mySeat.ready}
+                  onSubmit={renameCodename}
+                />
+              </div>
+            )}
             <SeatCountControl
               current={snapshot.seats.length}
               minAllowed={minAllowed}
@@ -240,38 +255,81 @@ export default function LobbyPage() {
               myPlayerId={playerId}
               onKick={isHost ? kickSeat : undefined}
             />
-            {kickError && <p className="text-sm text-[#dc2626]">{kickError}</p>}
-            <MatchSettingsPanel
-              settings={snapshot.settings}
-              seatCount={snapshot.seats.length}
-              isHost={isHost}
-              errorField={settingsError?.field ?? null}
-              error={settingsError?.message ?? null}
-              onChange={changeSettings}
+            {kickError && <p className="border-l-4 border-stamp px-3 py-1.5 text-sm text-stamp">{kickError}</p>}
+            {mySeat && (
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={toggleReady} size="lg" variant={mySeat.ready ? 'ghost' : 'primary'}>
+                  {mySeat.ready ? 'Ready ✓' : 'Ready Up'}
+                </Button>
+                <Button variant="ghost" size="lg" onClick={openEditor}>
+                  Edit Loadout
+                </Button>
+              </div>
+            )}
+            {showDivergenceNotice && (
+              <p className="text-sm text-ink-muted">
+                Your loadout has unsaved changes — this match will use your last saved loadout.
+              </p>
+            )}
+            <ReadyCountdown snapshot={snapshot} />
+            <p className="text-xs text-ink-muted">
+              The match starts once at least half of the filled seats are ready. Open seats are filled by AI
+              opponents.
+            </p>
+          </Folder>
+
+          <div className="flex flex-col gap-6">
+            <Folder tab="Operation parameters" bodyClassName="p-5">
+              <MatchSettingsPanel
+                settings={snapshot.settings}
+                seatCount={snapshot.seats.length}
+                isHost={isHost}
+                errorField={settingsError?.field ?? null}
+                error={settingsError?.message ?? null}
+                onChange={changeSettings}
+              />
+            </Folder>
+            <ChatPanel
+              messages={lobbyChat}
+              onSend={handleSendChat}
+              onSendPrompt={handleSendChatPrompt}
+              error={chatError}
             />
           </div>
-          {mySeat && (
-            <div className="flex gap-2">
-              <Button onClick={toggleReady}>{mySeat.ready ? 'Ready ✓' : 'Ready Up'}</Button>
-              <Button variant="ghost" onClick={openEditor}>
-                Edit Loadout
-              </Button>
-            </div>
-          )}
-          {showDivergenceNotice && (
-            <p className="text-sm text-[#64748b]">
-              Your loadout has unsaved changes — this match will use your last saved loadout.
-            </p>
-          )}
-          <ReadyCountdown snapshot={snapshot} />
-          <ChatPanel
-            messages={lobbyChat}
-            onSend={handleSendChat}
-            onSendPrompt={handleSendChatPrompt}
-            error={chatError}
-          />
-        </>
+        </div>
       )}
     </PageTransition>
+  );
+}
+
+/** The join code, large enough to read aloud, with a copy-the-invite-link
+ *  button — the whole way a friend gets into this room. */
+function InviteCode({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/lobby/${code}`);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="paper flex items-center gap-3 rounded-[3px] px-4 py-2 shadow-sheet">
+      <span className="flex flex-col leading-tight">
+        <span className="label-caps text-[0.6rem] text-ink-muted">Join code</span>
+        <span className="font-display text-2xl tracking-[0.3em]">{code}</span>
+      </span>
+      <button
+        type="button"
+        onClick={copy}
+        className="label-caps min-h-11 rounded-[2px] border-2 border-ink/40 px-3 text-[0.65rem] hover:bg-ink/10"
+      >
+        {copied ? 'Link copied' : 'Copy invite link'}
+      </button>
+    </div>
   );
 }

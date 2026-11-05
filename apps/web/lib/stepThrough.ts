@@ -45,3 +45,9 @@ export function revealedEvents(
 export function isComplete(log: readonly ResolutionEvent[], state: RevealState): boolean {
   return state.revealed >= log.length;
 }
+
+/** Skip to the end: every event revealed, still the engine's own prefix
+ *  (the whole log), never reordered. */
+export function revealAll(log: readonly ResolutionEvent[]): RevealState {
+  return { revealed: log.length };
+}

@@ -29,7 +29,7 @@ export function LockedInRow({ view }: LockedInRowProps) {
   const seats = view.settings.seats;
 
   return (
-    <div className="flex gap-2" role="list" aria-label="Locked-in players">
+    <div className="flex flex-wrap gap-1.5" role="list" aria-label="Locked-in players">
       {Array.from({ length: SLOT_COUNT }, (_, index) => {
         const seat = seats[index];
         if (!seat) {
@@ -37,7 +37,7 @@ export function LockedInRow({ view }: LockedInRowProps) {
             <div
               key={index}
               aria-hidden="true"
-              className="h-8 w-20 rounded border border-dashed border-[#e2e8f0]"
+              className="h-7 w-16 rounded-[2px] border border-dashed border-on-desk-muted/30"
             />
           );
         }
@@ -47,16 +47,18 @@ export function LockedInRow({ view }: LockedInRowProps) {
           <div
             key={index}
             role="listitem"
-            className="flex h-8 min-w-20 items-center justify-center gap-1 rounded border border-[#e2e8f0] px-2 text-xs"
+            className={`flex h-7 min-w-16 items-center justify-center gap-1 rounded-[2px] border px-2 text-xs ${
+              lockedIn ? 'border-ok bg-ok-wash text-ok' : 'border-on-desk-muted/40 text-on-desk'
+            }`}
           >
-            <span className="truncate">{truncateCodename(seat.name)}</span>
+            <span className="max-w-[9rem] truncate">{truncateCodename(seat.name)}</span>
             {seat.kind === 'BOT' && (
-              <span className="rounded border border-[#e2e8f0] px-1 text-[10px] font-semibold uppercase text-[#64748b]">
+              <span className="label-caps rounded-[2px] border border-current/50 px-0.5 text-[0.55rem] opacity-80">
                 AI
               </span>
             )}
             {lockedIn && (
-              <span aria-label="Locked in" className="font-semibold text-[#2563eb]">
+              <span aria-label="Locked in" className="font-bold">
                 ✓
               </span>
             )}

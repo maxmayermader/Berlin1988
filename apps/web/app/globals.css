@@ -1,35 +1,233 @@
 @import 'tailwindcss';
 
 /**
- * Design tokens from .planning/phases/01-playable-skeleton/01-UI-SPEC.md.
- * D-10: "clean but plain" — no theme, no illustration, two weights only.
+ * The declassified-dossier token set (v1.1 THEME-02..05).
  *
- * Spacing scale (4/8/16/24/32/48/64) is deliberately NOT declared as custom
- * `--spacing-*` theme keys here: Tailwind v4 reserves that exact namespace
- * (`--spacing-xs` .. `--spacing-3xl`) internally for its own named width/
- * max-width scale (e.g. `max-w-xl` resolves through `--spacing-xl`).
- * Overriding those names silently corrupts unrelated utilities — `max-w-xl`
- * was resolving to 32px instead of ~36rem before this comment was written.
- * The UI-SPEC's 4px-multiple scale already IS Tailwind's default numeric
- * spacing scale (`--spacing: 0.25rem`), so components use it directly via
- * numeric utilities (`gap-8`, `px-6`, `py-16`, ...) with no custom theme
- * needed. Colors and font weights below use names outside Tailwind's own
- * default palettes, so they're safe to declare as new theme keys.
+ * Every surface reads from these names — components never carry a raw hex
+ * value — so the whole look is a token swap, not a hand-styling pass.
+ *
+ * Three planes, back to front:
+ *   desk    the dark wooden table the file sits on (page background)
+ *   manila  the folder itself (primary panels)
+ *   paper   typed sheets inside the folder (dense lists, the map)
+ * Ink colours are chosen for WCAG 2.1 AA on paper AND manila: ink ≈ 13:1,
+ * ink-muted ≥ 4.9:1, stamp ≥ 5:1, accent ≥ 8:1. Text on the desk uses the
+ * on-desk pair (≥ 7:1 / ≥ 4.6:1).
+ *
+ * Spacing is deliberately NOT declared as custom `--spacing-*` keys:
+ * Tailwind v4 reserves `--spacing-xs` .. `--spacing-3xl` for its own named
+ * width scale (`max-w-xl` resolves through `--spacing-xl`). Overriding those
+ * names silently corrupts unrelated utilities. Colour and font names below
+ * sit outside Tailwind's default palettes, so they are safe theme keys.
  */
 @theme {
   --font-weight-body: 400;
-  --font-weight-heading: 600;
+  --font-weight-heading: 700;
 
-  --color-surface: #ffffff;
-  --color-surface-secondary: #f1f5f9;
-  --color-border: #e2e8f0;
-  --color-accent: #2563eb;
-  --color-destructive: #dc2626;
+  /* Display + stamps only, 16px and up. Body and data use the typewriter
+     face, which was drawn for legibility at small sizes. */
+  --font-display: var(--font-special-elite), 'American Typewriter', 'Courier New', monospace;
+  --font-type: var(--font-courier-prime), 'Courier New', ui-monospace, monospace;
+
+  --color-desk: #1b1915;
+  --color-desk-2: #26231d;
+  --color-desk-3: #353028;
+  --color-on-desk: #ece4cf;
+  --color-on-desk-muted: #b4aa90;
+
+  --color-paper: #f5f0e2;
+  --color-paper-2: #ece3cd;
+  --color-manila: #e4d4ac;
+  --color-manila-2: #d5c08f;
+  --color-ink: #221e18;
+  --color-ink-muted: #574d3e;
+  --color-rule: #cdbd95;
+  --color-rule-strong: #8a7a58;
+
+  --color-accent: #1d3d78;
+  --color-accent-strong: #132a55;
+  --color-accent-wash: #dde1de;
+  --color-stamp: #a3241b;
+  --color-stamp-strong: #7f1a13;
+  --color-stamp-wash: #f0d8cb;
+  --color-ok: #2b5631;
+  --color-ok-wash: #dde5cf;
+  --color-warn: #7d5200;
+  --color-highlight: #d99a1e;
+  /* Alarm red that reads on the dark desk (stamp red is for paper). */
+  --color-alarm: #e7826f;
+  --color-concrete: #77705f;
+
+  /* Pencil colours for each of the viewer's own agents' planned routes. */
+  --color-agent-1: #1d3d78;
+  --color-agent-2: #6a2d6e;
+
+  /* Sector inks. Never the only encoding: every sector also has a shape
+     (circle / square / diamond / triangle) and a hatch pattern. */
+  --color-sector-red: #a12f29;
+  --color-sector-blue: #284c8c;
+  --color-sector-gold: #8d630b;
+  --color-sector-green: #356332;
+
+  --shadow-sheet: 0 1px 0 rgb(0 0 0 / 0.25), 0 10px 24px -8px rgb(0 0 0 / 0.55);
+  --shadow-lift: 0 1px 0 rgb(0 0 0 / 0.2), 0 4px 10px -4px rgb(0 0 0 / 0.45);
+
+  --animate-stamp-in: stamp-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  --animate-beat-pulse: beat-pulse 1.4s ease-out infinite;
+
+  @keyframes stamp-in {
+    0% {
+      opacity: 0;
+      transform: scale(1.8) rotate(var(--stamp-tilt, -4deg));
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1) rotate(var(--stamp-tilt, -4deg));
+    }
+  }
+  @keyframes beat-pulse {
+    0% {
+      opacity: 0.85;
+      transform: scale(0.6);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.6);
+    }
+  }
+}
+
+:root {
+  /* Paper grain: one static SVG turbulence tile, never a live filter on an
+     animating element (it would repaint every frame). */
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.32 0 0 0 0 0.25 0 0 0 0 0.14 0 0 0 0.13 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  --desk-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.012 0.45' numOctaves='3' seed='4' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.55 0 0 0 0 0.42 0 0 0 0 0.28 0 0 0 0.10 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  --focus-color: var(--color-accent);
+  color-scheme: light;
+}
+
+html {
+  background: var(--color-desk);
 }
 
 body {
-  background: var(--color-surface);
-  color: #0f172a;
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100dvh;
+  background-color: var(--color-desk);
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgb(255 236 200 / 0.07), transparent 60%),
+    radial-gradient(ellipse at 50% 120%, rgb(0 0 0 / 0.5), transparent 60%),
+    var(--desk-grain);
+  color: var(--color-on-desk);
+  font-family: var(--font-type);
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-stamp);
+  color: var(--color-paper);
+}
+
+/* One focus treatment everywhere: keyboard focus is always visible, on the
+   desk and on paper alike. */
+:focus-visible {
+  outline: 2px solid var(--focus-color);
+  outline-offset: 2px;
+}
+
+/* Surfaces. Each sets its own text colour so a component dropped onto it
+   inherits legible ink without per-element colour classes. */
+@utility desk-surface {
+  --focus-color: #e3b14f;
+  background-color: var(--color-desk-2);
+  color: var(--color-on-desk);
+}
+
+@utility manila {
+  --focus-color: var(--color-accent);
+  background-color: var(--color-manila);
+  background-image: var(--grain);
+  color: var(--color-ink);
+}
+
+@utility paper {
+  --focus-color: var(--color-accent);
+  background-color: var(--color-paper);
+  background-image: var(--grain);
+  color: var(--color-ink);
+}
+
+/* Small uppercase field label — the "FIELD:" in a typed form. */
+@utility label-caps {
+  font-family: var(--font-type);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* A rubber stamp. Colour comes from the element's own text colour, so the
+   same utility makes a red CLASSIFIED and a blue APPROVED. */
+@utility stamp {
+  display: inline-block;
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  padding: 0.3em 0.55em 0.22em;
+  border: 3px double currentColor;
+  border-radius: 4px;
+  transform: rotate(var(--stamp-tilt, -4deg));
+  opacity: 0.9;
+  mix-blend-mode: multiply;
+  -webkit-mask-image: var(--grain), linear-gradient(#000, #000);
+  -webkit-mask-composite: source-over;
+}
+
+/* A redaction bar — the visible shape of withheld information. */
+@utility redacted {
+  display: inline-block;
+  min-width: 4.5em;
+  height: 0.95em;
+  vertical-align: -0.12em;
+  background: var(--color-ink);
+  border-radius: 1px;
+  transform: rotate(-0.6deg);
+}
+
+/* Paper-clip tab sticking out of a folder's top edge. */
+@utility folder-tab {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Map labels get a paper halo so they stay legible over roads and hatching. */
+.board-label {
+  paint-order: stroke;
+  stroke: var(--color-paper);
+  stroke-width: 0.6px;
+  stroke-linejoin: round;
+}
+
+/* Board pulses scale from their own centre. */
+.beat-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Agent tokens glide between nodes during the replay; the reduced-motion
+   block above turns this into an instant cut. */
+.agent-token {
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }

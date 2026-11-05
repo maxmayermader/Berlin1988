@@ -1,6 +1,7 @@
 'use client';
 
 import { ALL_CARDS } from '@berlin/engine';
+import Link from 'next/link';
 import { useEffect } from 'react';
 import { Deckbuilder } from '../../components/deck/Deckbuilder.js';
 import { PageTransition } from '../../components/ui/PageTransition.js';
@@ -25,20 +26,31 @@ export default function DeckPage() {
   }, [hydrate]);
 
   return (
-    <PageTransition className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-16">
-      <h1 className="text-[28px] font-semibold leading-[1.2]">Build Loadout</h1>
-      {!hydrated ? (
-        <p className="text-sm">Loading…</p>
-      ) : (
-        <Deckbuilder
-          loadout={loadout}
-          cards={ALL_CARDS}
-          onAdd={add}
-          onRemove={remove}
-          onLoadPreset={loadPreset}
-          saveStatus={saveStatus}
-        />
-      )}
+    <PageTransition className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6">
+      <header className="flex flex-col gap-1">
+        <Link href="/" className="label-caps text-on-desk-muted hover:text-on-desk">
+          ← Berlin 1988
+        </Link>
+        <h1 className="font-display text-3xl leading-none text-on-desk sm:text-4xl">Build Loadout</h1>
+        <p className="max-w-2xl text-sm text-on-desk-muted">
+          Ten cards ride with you into every match: reusable operations gated by Intel and cooldown, and passive
+          insurance that fires on its own. Your file saves in this browser and is sent to every lobby you join.
+        </p>
+      </header>
+      <div className="manila rounded-[4px] p-4 shadow-sheet sm:p-6">
+        {!hydrated ? (
+          <p className="text-sm">Loading…</p>
+        ) : (
+          <Deckbuilder
+            loadout={loadout}
+            cards={ALL_CARDS}
+            onAdd={add}
+            onRemove={remove}
+            onLoadPreset={loadPreset}
+            saveStatus={saveStatus}
+          />
+        )}
+      </div>
     </PageTransition>
   );
 }

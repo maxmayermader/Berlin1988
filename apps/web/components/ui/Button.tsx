@@ -11,36 +11,55 @@ import { HOVER_TRANSITION_CLASS } from '../../lib/motion.js';
  */
 
 export type ButtonVariant = 'primary' | 'destructive' | 'ghost';
+export type ButtonSize = 'md' | 'lg';
 
 export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className'> {
   variant?: ButtonVariant;
-  /** Renders disabled with reduced opacity and no spinner — D-10 permits no
-   *  animation beyond the resolution step transitions; this was never
-   *  motion-based, so the reduced-motion preference does not affect it. */
+  size?: ButtonSize;
+  /** Stretch to the container's width. */
+  block?: boolean;
+  /** Renders disabled with reduced opacity and no spinner. */
   pending?: boolean;
   children: ReactNode;
 }
 
 /**
+ * Typed-label buttons: heavy ink border, uppercase typewriter caps, a hard
+ * offset shadow that collapses on press like a key going down.
+ *
  * `enabled:` gates every hover fill so a `pending`/`disabled` button (which
  * renders at `disabled:opacity-50`) never brightens under the cursor as if
  * it were actionable (T-04-17). Hover fills are one step darker than each
- * variant's base fill (04-UI-SPEC.md Color section); `ghost` gets the
- * transition class but no fill change — hover fills are reserved for the
- * primary and destructive variants only.
+ * variant's base fill; `ghost` inherits the surrounding text colour so the
+ * same button reads on the desk and on paper.
  */
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: 'bg-[#2563eb] text-white enabled:hover:bg-[#1d4ed8]',
-  destructive: 'bg-[#dc2626] text-white enabled:hover:bg-[#b91c1c]',
-  ghost: 'bg-transparent text-[#0f172a] border border-[#e2e8f0]',
+  primary:
+    'border-accent-strong bg-accent text-paper enabled:hover:bg-accent-strong shadow-[3px_3px_0_0_var(--color-accent-strong)]',
+  destructive:
+    'border-stamp-strong bg-stamp text-paper enabled:hover:bg-stamp-strong shadow-[3px_3px_0_0_var(--color-stamp-strong)]',
+  ghost: 'border-current/45 bg-transparent text-current enabled:hover:bg-current/10',
 };
 
-export function Button({ variant = 'primary', pending = false, disabled, children, ...rest }: ButtonProps) {
+const SIZE_CLASSES: Record<ButtonSize, string> = {
+  md: 'min-h-11 px-4 py-2 text-sm',
+  lg: 'min-h-13 px-6 py-3 text-base',
+};
+
+export function Button({
+  variant = 'primary',
+  size = 'md',
+  block = false,
+  pending = false,
+  disabled,
+  children,
+  ...rest
+}: ButtonProps) {
   return (
     <button
       type="button"
       disabled={disabled || pending}
-      className={`rounded px-4 py-2 text-base font-semibold disabled:opacity-50 ${HOVER_TRANSITION_CLASS} ${VARIANT_CLASSES[variant]}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-[3px] border-2 font-bold uppercase tracking-[0.08em] disabled:cursor-not-allowed disabled:opacity-50 enabled:active:translate-x-[2px] enabled:active:translate-y-[2px] enabled:active:shadow-none ${HOVER_TRANSITION_CLASS} ${SIZE_CLASSES[size]} ${block ? 'w-full' : ''} ${VARIANT_CLASSES[variant]}`}
       {...rest}
     >
       {children}

@@ -1,8 +1,9 @@
 import type { ResolutionEvent } from '@berlin/shared';
-import { eventText } from '../../lib/format.js';
+import { type EventContext, eventText } from '../../lib/format.js';
 
 export interface ResolutionEventRowProps {
   event: ResolutionEvent;
+  ctx?: EventContext;
 }
 
 /**
@@ -12,6 +13,6 @@ export interface ResolutionEventRowProps {
  * only, not the `<li>` wrapper: `StepThrough.tsx` owns the list-item
  * element so it can attach the per-row reveal transition (D-06) to it.
  */
-export function ResolutionEventRow({ event }: ResolutionEventRowProps) {
-  return <>{eventText(event)}</>;
+export function ResolutionEventRow({ event, ctx }: ResolutionEventRowProps) {
+  return <>{eventText(event, ctx)}</>;
 }

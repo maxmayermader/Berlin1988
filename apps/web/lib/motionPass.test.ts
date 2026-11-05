@@ -30,7 +30,7 @@ const lobbyPageSrc = readSrc('../app/lobby/[code]/page.tsx');
 const matchPageSrc = readSrc('../app/match/[code]/page.tsx');
 const stepThroughSrc = readSrc('../components/resolution/StepThrough.tsx');
 const matchChatSrc = readSrc('../components/match/MatchChat.tsx');
-const drawerSrc = readSrc('../components/match/MatchIntelDrawer.tsx');
+const matchFileSrc = readSrc('../components/match/MatchFile.tsx');
 const cardGridSrc = readSrc('../components/deck/CardGrid.tsx');
 
 /**
@@ -43,7 +43,8 @@ const ANIMATED_COMPONENT_PATHS = [
   '../components/resolution/StepThrough.tsx',
   '../components/resolution/RoundHistoryPanel.tsx',
   '../components/intel/BurnTrackPanel.tsx',
-  '../components/match/MatchIntelDrawer.tsx',
+  '../components/match/MatchFile.tsx',
+  '../components/intel/RosterPanel.tsx',
   '../components/match/MatchChat.tsx',
   '../components/deck/CardGrid.tsx',
   '../components/ui/PageTransition.tsx',
@@ -86,8 +87,10 @@ describe('Button.tsx — hover fills', () => {
   });
 
   it('contains the primary and destructive hover fills, gated to enabled buttons only', () => {
-    expect(buttonSrc).toContain('enabled:hover:bg-[#1d4ed8]');
-    expect(buttonSrc).toContain('enabled:hover:bg-[#b91c1c]');
+    // v1.1 dossier theme: the fills are theme tokens, one step darker than
+    // each variant's base (accent → accent-strong, stamp → stamp-strong).
+    expect(buttonSrc).toContain('enabled:hover:bg-accent-strong');
+    expect(buttonSrc).toContain('enabled:hover:bg-stamp-strong');
   });
 
   it('still contains disabled:opacity-50 — the pending treatment is untouched', () => {
@@ -160,9 +163,9 @@ describe('CardGrid.tsx', () => {
   });
 });
 
-describe('MatchChat.tsx and MatchIntelDrawer.tsx toggle buttons', () => {
+describe('MatchChat.tsx toggle and MatchFile.tsx tabs', () => {
   it('both carry HOVER_TRANSITION_CLASS', () => {
     expect(matchChatSrc.includes('HOVER_TRANSITION_CLASS')).toBe(true);
-    expect(drawerSrc.includes('HOVER_TRANSITION_CLASS')).toBe(true);
+    expect(matchFileSrc.includes('HOVER_TRANSITION_CLASS')).toBe(true);
   });
 });

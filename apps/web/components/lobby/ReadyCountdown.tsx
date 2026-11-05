@@ -33,7 +33,7 @@ export function ReadyCountdown({ snapshot }: ReadyCountdownProps) {
 
   return (
     <p
-      className={urgent ? 'text-sm font-semibold text-[#2563eb]' : 'text-sm text-[#0f172a]'}
+      className={urgent ? 'font-display text-lg text-stamp' : 'text-sm font-bold text-ink'}
       aria-live="polite"
     >
       Match starts in {remainingSeconds}s

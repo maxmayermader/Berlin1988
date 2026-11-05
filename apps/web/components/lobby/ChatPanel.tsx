@@ -40,10 +40,10 @@ export function ChatPanel({
   error = null,
 }: ChatPanelProps) {
   return (
-    <section className="flex flex-col gap-4 rounded border border-[#e2e8f0] bg-[#ffffff] p-6">
-      <h2 className="text-[20px] font-semibold leading-[1.2]">{TITLE}</h2>
+    <section className="manila flex flex-col gap-3 rounded-[4px] p-5 shadow-sheet">
+      <h2 className="font-display text-xl leading-none">{TITLE}</h2>
       <ChatBody messages={messages} />
-      {error && <p className="text-sm text-[#dc2626]">{error}</p>}
+      {error && <p className="text-sm text-stamp">{error}</p>}
       <ChatComposer onSend={onSend} onSendPrompt={onSendPrompt} pending={pending} />
     </section>
   );
@@ -59,14 +59,14 @@ export function ChatPanel({
 export function ChatBody({ messages }: { messages: readonly ChatMessage[] }) {
   const rows = chatRows(messages);
   return (
-    <div className="flex h-48 flex-col gap-2 overflow-y-auto rounded border border-[#e2e8f0] bg-[#f1f5f9] p-4">
+    <div className="paper flex min-h-48 flex-1 basis-48 flex-col gap-2 overflow-y-auto rounded-[2px] border border-rule p-3">
       {rows.length === 0 ? (
-        <p className="text-sm text-[#64748b]">{EMPTY_COPY}</p>
+        <p className="text-sm italic text-ink-muted">{EMPTY_COPY}</p>
       ) : (
         rows.map((row) => (
-          <div key={row.key}>
-            <p className="text-sm font-semibold">{row.codename}</p>
-            <p className="text-base">{row.text}</p>
+          <div key={row.key} className="border-b border-dashed border-rule pb-1.5 last:border-b-0">
+            <p className="label-caps text-[0.62rem] text-ink-muted">{row.codename}</p>
+            <p className="text-sm">{row.text}</p>
           </div>
         ))
       )}
@@ -104,14 +104,14 @@ export function ChatComposer({ onSend, onSendPrompt, pending = false }: ChatComp
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <input
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={PLACEHOLDER_COPY}
           maxLength={CHAT_TEXT_MAX}
-          className="flex-1 rounded border border-[#e2e8f0] px-3 py-2 text-base focus:border-[#2563eb]"
+          className="paper min-h-11 min-w-0 flex-1 rounded-[2px] border-2 border-rule px-3 py-2 text-sm placeholder:text-ink-muted focus:border-accent"
         />
         <Button
           variant="ghost"
@@ -131,7 +131,7 @@ export function ChatComposer({ onSend, onSendPrompt, pending = false }: ChatComp
               key={prompt}
               type="button"
               onClick={() => handlePromptClick(index)}
-              className="rounded border border-[#2563eb] px-3 py-1 text-sm text-[#2563eb]"
+              className="paper rounded-[2px] border border-accent/60 px-2.5 py-1 text-xs text-accent hover:bg-accent-wash"
             >
               {prompt}
             </button>

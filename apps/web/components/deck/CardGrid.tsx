@@ -1,10 +1,13 @@
 'use client';
 
-import { isPassive } from '@berlin/engine';
+import { isActive, isPassive } from '@berlin/engine';
 import { ICONS, type Card, type CardId, type Sector } from '@berlin/shared';
 import { motion, useReducedMotion } from 'motion/react';
 import { cardFlipVariant } from '../../lib/motion.js';
+import { SECTOR_COLOR } from '../../lib/sectors.js';
+import { SectorGlyph } from '../intel/SectorGlyph.js';
 import { Button } from '../ui/Button.js';
+import { Stamp } from '../ui/Stamp.js';
 
 export interface CardGridProps {
   cards: readonly Card[];
@@ -17,15 +20,10 @@ export interface CardGridProps {
   onRemove: (id: CardId) => void;
 }
 
-/** 02-UI-SPEC.md's fixed four-color palette — a sector swatch is always
- *  paired with its uppercase text label, never color alone
+/** The theme's sector inks (lib/sectors.ts) — a sector swatch is always
+ *  paired with its shape and uppercase text label, never color alone
  *  (apps/web/components/CLAUDE.md). */
-const SECTOR_SWATCH: Record<Sector, string> = {
-  RED: '#dc2626',
-  BLUE: '#2563eb',
-  GOLD: '#ca8a04',
-  GREEN: '#16a34a',
-};
+const SECTOR_SWATCH: Record<Sector, string> = SECTOR_COLOR;
 
 interface CardTileProps {
   card: Card;
@@ -51,34 +49,49 @@ function CardTile({ card, inLoadout, violating, reducedMotion, onAdd, onRemove }
       key={inLoadout ? 'in' : 'out'}
       data-card-id={card.id}
       {...cardFlipVariant(reducedMotion)}
-      className={`flex flex-col gap-2 rounded border bg-[#f1f5f9] p-4 ${
-        violating ? 'border-l-4 border-l-[#dc2626] border-y-[#e2e8f0] border-r-[#e2e8f0]' : 'border-[#e2e8f0]'
+      className={`paper relative flex flex-col gap-1.5 overflow-hidden rounded-[3px] border p-3 pt-0 shadow-[1px_2px_0_0_var(--color-rule)] ${
+        violating ? 'border-2 border-stamp' : inLoadout ? 'border-2 border-ink' : 'border-rule'
       }`}
     >
-      <div className="flex items-center gap-1">
-        <span
-          aria-hidden="true"
-          className="inline-block h-3 w-3 rounded-full"
-          style={{ backgroundColor: SECTOR_SWATCH[card.sector] }}
-        />
-        <span className="text-sm font-semibold uppercase">{card.sector}</span>
-        <span className="text-sm font-semibold uppercase text-[#64748b]">{card.icon}</span>
+      <div
+        className="-mx-3 mb-1 flex items-center gap-1.5 px-3 py-1.5"
+        style={{ borderTop: `5px solid ${SECTOR_SWATCH[card.sector]}`, borderBottom: '1px dashed var(--color-rule)' }}
+      >
+        <SectorGlyph sector={card.sector} size={12} />
+        <span className="label-caps">{card.sector}</span>
+        <span className="label-caps text-ink-muted">· {card.icon}</span>
+        <span className="ml-auto rounded-full border border-ink/40 px-1.5 text-xs font-bold tabular-nums">
+          {card.budgetPoints} BP
+        </span>
       </div>
-      <p className="text-base font-semibold">{card.name}</p>
-      <p className="text-sm text-[#64748b]">{card.budgetPoints} BP</p>
-      <p className="text-base">{card.text}</p>
+      <p className="font-display text-lg leading-tight">{card.name}</p>
+      <p className="text-sm leading-snug">{card.text}</p>
+      {isActive(card) && (
+        <p className="label-caps text-[0.62rem] text-ink-muted">
+          {card.intelCost} Intel · cooldown {card.cooldown}
+        </p>
+      )}
       {isPassive(card) && (
-        <span className="text-sm font-semibold uppercase text-[#64748b]">
+        <span className="label-caps text-[0.62rem] text-ink-muted">
           {card.consumable ? 'Consumable' : 'Permanent'}
         </span>
       )}
-      {violating && <p className="text-sm text-[#dc2626]">Over the {card.icon} limit</p>}
-      <Button
-        variant={inLoadout ? 'destructive' : 'primary'}
-        onClick={() => (inLoadout ? onRemove(card.id) : onAdd(card.id))}
-      >
-        {inLoadout ? 'Remove' : 'Add'}
-      </Button>
+      {violating && <p className="text-sm font-bold text-stamp">Over the {card.icon} limit</p>}
+      <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+        {inLoadout ? (
+          <Stamp tone="ok" tilt={-5} className="text-xs">
+            In your file
+          </Stamp>
+        ) : (
+          <span />
+        )}
+        <Button
+          variant={inLoadout ? 'ghost' : 'primary'}
+          onClick={() => (inLoadout ? onRemove(card.id) : onAdd(card.id))}
+        >
+          {inLoadout ? 'Remove' : 'Add'}
+        </Button>
+      </div>
     </motion.div>
   );
 }
@@ -103,9 +116,9 @@ export function CardGrid({ cards, loadout, violatingCardIds = [], onAdd, onRemov
       {ICONS.map((icon) => {
         const iconCards = cards.filter((c) => c.icon === icon && !isPassive(c));
         return (
-          <section key={icon} className="flex flex-col gap-2 rounded border border-[#e2e8f0] bg-white p-6">
-            <h3 className="text-[20px] font-semibold uppercase leading-[1.2]">{icon}</h3>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <section key={icon} className="flex flex-col gap-2.5">
+            <h3 className="border-b-2 border-ink/70 pb-1 font-display text-xl uppercase leading-none tracking-[0.06em]">{icon}</h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {iconCards.map((card) => (
                 <CardTile
                   key={card.id}
@@ -122,9 +135,9 @@ export function CardGrid({ cards, loadout, violatingCardIds = [], onAdd, onRemov
         );
       })}
 
-      <section className="flex flex-col gap-2 rounded border border-[#e2e8f0] bg-white p-6">
-        <h3 className="text-[20px] font-semibold leading-[1.2]">Passives</h3>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <section className="flex flex-col gap-2.5">
+        <h3 className="border-b-2 border-ink/70 pb-1 font-display text-xl leading-none tracking-[0.06em]">Passives</h3>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {passives.map((card) => (
             <CardTile
               key={card.id}

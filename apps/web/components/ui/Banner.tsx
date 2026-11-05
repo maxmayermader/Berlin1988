@@ -18,13 +18,13 @@ export interface BannerProps {
 
 export function Banner({ children, onDismiss }: BannerProps) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded border-l-4 border-l-[#dc2626] bg-[#f1f5f9] px-4 py-3 text-base text-[#0f172a]">
+    <div className="paper flex items-start justify-between gap-3 rounded-[3px] border-l-4 border-l-stamp px-4 py-3 text-base shadow-lift">
       <p>{children}</p>
       <button
         type="button"
         onClick={onDismiss}
         aria-label="Dismiss"
-        className="shrink-0 text-sm text-[#64748b]"
+        className="min-h-8 min-w-8 shrink-0 text-lg text-ink-muted"
       >
         ×
       </button>

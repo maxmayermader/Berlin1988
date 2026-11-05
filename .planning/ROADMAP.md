@@ -209,10 +209,10 @@ Phases execute in numeric order: 5 → 6 → 7 → 8 → 9 → 10. Phase 8 has n
 | 4. Deduction Surfaces & Presentation Polish | v1.0 | 4/4 | Complete | 2026-09-03 |
 | 5. Live Deployment | v1.1 | 0/TBD | Not started | - |
 | 6. Host Match Settings & Full-Size Maps | v1.1 | — | Implemented (direct) | 2026-09-21 |
-| 7. Full Order Composer | v1.1 | — | Mostly implemented (direct) | 2026-09-21 |
-| 8. Own Status, Signals & Burn Visibility | v1.1 | 0/TBD | Not started | - |
-| 9. Resolution Replay & Spectating | v1.1 | 0/TBD | Not started | - |
-| 10. Declassified Dossier Redesign & Live Verification | v1.1 | 0/TBD | Not started | - |
+| 7. Full Order Composer | v1.1 | — | Implemented (direct); ORDER-08 closed 2026-11-05 | 2026-11-05 |
+| 8. Own Status, Signals & Burn Visibility | v1.1 | — | Implemented (direct) | 2026-11-05 |
+| 9. Resolution Replay & Spectating | v1.1 | — | Implemented (direct) | 2026-11-05 |
+| 10. Declassified Dossier Redesign & Live Verification | v1.1 | — | Redesign implemented; live verification open | - |
 
 ## Requirement Coverage (v1.1)
 
@@ -265,6 +265,60 @@ deliberately — its topology is what every golden fixture and the AI balance
 data in `docs/AI_OPPONENTS.md` §7 were produced against. Either the map or
 the doc should move; that is a balance decision. Recorded in
 `packages/engine/tests/map-invariants.test.ts`.
+
+## Execution note — Phases 8, 9 and 10's redesign (2026-11-05)
+
+Implemented directly, at the user's request to "finish the game and make it
+look good" — like Phases 6 and 7, without PLAN/SUMMARY/VERIFICATION
+artifacts; this note and the code are the record. Verified against
+localhost only: `pnpm typecheck` clean, 731 vitest tests green, and all 24
+Playwright e2e green (run against the local `pnpm dev` stack).
+
+**ORDER-08 — closed.** Composed orders are drawn on the board as pencil
+routes (draft) and inked routes once the room acknowledges them
+(`components/board/PlanOverlay.tsx`, `lib/plannedPaths.ts`).
+
+**Phase 8 — done.** Own kit panel (Intel, silencers, safehouse, traps,
+decoys, each agent's node and cargo, the loadout with engine-computed
+cooldowns and armed/spent passives); the personnel roster (every player's
+agents standing vs burned as counts, Intel, score, eliminated stamp, and any
+player's Burn Track — BURN-05); the intercepts log (signals kept across rounds
+in `lib/signalStore.ts`, grouped by round with a digest, public vs eyes-only
+tags, a redaction bar on sector-only strike reports, click-to-highlight on
+the map); round prose that names whose agent moved, struck or burned
+(`eventText` with an `EventContext` built only from the viewer's own view);
+and a casualty report when one of the player's agents burns.
+
+**Phase 9 — done.** The round report auto-plays one beat per event with
+pause / next / skip; the board shows each beat (rings, arrow, stamped word)
+and slides the player's own tokens along their own moves
+(`lib/replay.ts`). Fog regression tests in `lib/replay.test.ts` run real
+engine-resolved 4-player matches and assert every beat points only at nodes
+its own fog-filtered event names, and that only the viewer's own agents are
+ever traced. Eliminated players get an explicit "Eliminated — watching" panel
+and keep the roster, intercepts, history and replays.
+
+**Phase 10 — redesign done, live verification still open.** Token set in
+`apps/web/app/globals.css` (desk / manila / paper, ink and stamp colours —
+every text pair used clears WCAG AA 4.5:1; sector inks are used for shapes
+only on manila, where 3:1 applies), Special Elite + Courier Prime via
+next/font, and every screen restyled: home cover sheet, briefing-room lobby
+with a copyable invite link, card-file deckbuilder, the match screen (city
+plan with Voronoi districts, hatch patterns and the Wall), and a case-closed
+result screen. `docs/GAME_DESIGN.md` §1 and `docs/ARCHITECTURE.md` §9 now
+describe this look. DEPLOY-03/04 (a real group on the deployed site) remain
+open and still depend on Phase 5.
+
+**Bug fixed in passing:** the match page's own socket receives a VIEW on
+(re)join whose `clock.deadlineAt` is always null (the engine never knows the
+time), and `matchStore.setView` copied that over the deadline the lobby
+socket had already received — so the round clock read 0:00 for the whole
+first round. The store now keeps a known deadline, and the room sends CLOCK
+after a mid-match (re)join's VIEW.
+
+**Deliberately not done:** silencer purchase in the composer (it needs the
+cross-agent Intel helpers in `actionCost.ts` to account for `buySilencers`
+first), unanimous pause, the high-contrast theme, and audio.
 
 ---
 *v1.1 roadmap created: 2026-09-18*

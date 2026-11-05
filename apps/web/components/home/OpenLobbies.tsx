@@ -62,17 +62,17 @@ export function OpenLobbies() {
   const rows = lobbyRows(feed.lobbies);
 
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className="text-xl font-semibold leading-[1.2]">Open Lobbies</h2>
+    <section className="flex flex-col gap-3">
+      <h2 className="sr-only">Open Lobbies</h2>
       {!feed.everConnected ? (
         // Before the first accepted DIRECTORY_STATE frame — neither the
         // empty state nor a row list, a neutral in-between (03-UI-SPEC.md
         // UI Considerations "loading" row).
-        <p className="text-base text-[#64748b]">{CONNECTING_LABEL}</p>
+        <p className="text-sm italic text-ink-muted">{CONNECTING_LABEL}</p>
       ) : rows.length === 0 ? (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-xl font-semibold leading-[1.2]">{EMPTY_HEADING}</h3>
-          <p className="text-base">{EMPTY_BODY}</p>
+        <div className="flex flex-col gap-1">
+          <h3 className="font-display text-lg leading-tight">{EMPTY_HEADING}</h3>
+          <p className="text-sm">{EMPTY_BODY}</p>
         </div>
       ) : (
         // A closed socket with rows already in hand keeps rendering those
@@ -84,11 +84,11 @@ export function OpenLobbies() {
           {rows.map((row) => (
             <li
               key={row.key}
-              className="flex items-center justify-between gap-2 rounded border border-[#e2e8f0] bg-[#f1f5f9] p-4"
+              className="paper flex items-center justify-between gap-2 rounded-[2px] border border-rule px-3 py-2 shadow-[1px_1px_0_0_var(--color-rule)]"
             >
               <span className="flex min-w-0 flex-col">
-                <span className="truncate text-base">{row.hostLabel}</span>
-                <span className="text-sm text-[#64748b]">{row.seatsLabel}</span>
+                <span className="truncate font-bold">{row.hostLabel}</span>
+                <span className="label-caps text-[0.62rem] text-ink-muted">{row.seatsLabel}</span>
               </span>
               <Button pending={pending} onClick={() => onJoin(row.code)}>
                 Join
@@ -98,7 +98,7 @@ export function OpenLobbies() {
         </ul>
       )}
       {state.status === 'error' && state.error && (
-        <p className="text-base text-[#0f172a]">{state.error}</p>
+        <p className="border-l-4 border-stamp px-3 py-1.5 text-sm text-stamp">{state.error}</p>
       )}
     </section>
   );

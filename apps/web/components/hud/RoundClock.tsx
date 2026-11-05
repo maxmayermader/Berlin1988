@@ -15,9 +15,8 @@ export interface RoundClockProps {
  * `secondsRemaining`, so a tab suspended for a minute resumes at the
  * correct number rather than resuming a stale local count (T-1-24).
  *
- * Under `URGENT_THRESHOLD_SECONDS` the numerals take the `#2563EB` accent —
- * a static colour change on a threshold, not a pulse or a flash. D-10
- * permits no animation beyond D-06's step transitions, so this component
+ * Under `URGENT_THRESHOLD_SECONDS` the numerals turn stamp red — a static
+ * colour change on a threshold, not a pulse or a flash, so this component
  * imports no motion library at all.
  */
 export function RoundClock({ deadlineAt }: RoundClockProps) {
@@ -32,10 +31,14 @@ export function RoundClock({ deadlineAt }: RoundClockProps) {
   const urgent = isUrgent(seconds);
 
   return (
-    <p
-      className={`text-sm font-semibold tabular-nums ${urgent ? 'text-[#2563eb]' : 'text-[#0f172a]'}`}
+    <div
+      className={`flex items-baseline gap-2 rounded-[3px] border-2 px-2.5 py-0.5 ${
+        urgent ? 'border-stamp bg-stamp-wash text-stamp' : 'border-on-desk-muted/50 text-on-desk'
+      }`}
+      aria-live="off"
     >
-      {clockLabel(seconds)}
-    </p>
+      <span className={`label-caps text-[0.6rem] ${urgent ? 'text-stamp' : 'text-on-desk-muted'}`}>Clock</span>
+      <p className="font-display text-2xl leading-none tabular-nums">{clockLabel(seconds)}</p>
+    </div>
   );
 }

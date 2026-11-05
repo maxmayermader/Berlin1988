@@ -7,17 +7,14 @@ import { LegalityMeter } from './LegalityMeter.js';
 import type { LoadoutSaveStatus } from '../../lib/loadoutStore.js';
 import { loadoutLegality } from '../../lib/loadoutStore.js';
 import { PresetPicker } from './PresetPicker.js';
+import { SECTOR_COLOR } from '../../lib/sectors.js';
+import { SectorGlyph } from '../intel/SectorGlyph.js';
 import { Button } from '../ui/Button.js';
 
-/** 02-UI-SPEC.md's fixed four-color palette — a sector swatch is always
- *  paired with its uppercase text label, never color alone
+/** The theme's sector inks (lib/sectors.ts) — a sector swatch is always
+ *  paired with its shape and uppercase text label, never color alone
  *  (apps/web/components/CLAUDE.md). */
-const SECTOR_SWATCH: Record<Sector, string> = {
-  RED: '#dc2626',
-  BLUE: '#2563eb',
-  GOLD: '#ca8a04',
-  GREEN: '#16a34a',
-};
+const SECTOR_SWATCH: Record<Sector, string> = SECTOR_COLOR;
 
 export interface DeckbuilderProps {
   loadout: readonly CardId[];
@@ -71,7 +68,7 @@ export function Deckbuilder({
     <div className="flex flex-col gap-8 md:flex-row md:items-start">
       <div className="flex flex-col gap-4 md:w-3/5">
         {showReadyClearedBanner && (
-          <p className="rounded border border-[#e2e8f0] bg-[#f1f5f9] px-4 py-2 text-sm text-[#64748b]">
+          <p className="rounded-[2px] border-l-4 border-warn bg-paper px-4 py-2 text-sm">
             Editing your loadout — your ready status has been cleared. Ready up again when you&apos;re done.
           </p>
         )}
@@ -88,13 +85,13 @@ export function Deckbuilder({
         <PresetPicker onLoadPreset={onLoadPreset} />
 
         {saveStatus?.state === 'storage-failed' && (
-          <p className="rounded border border-[#dc2626] bg-[#f1f5f9] px-4 py-2 text-sm text-[#dc2626]">
+          <p className="rounded-[2px] border-l-4 border-stamp bg-paper px-4 py-2 text-sm text-stamp">
             {"Couldn't save changes in this browser. Your edits won't persist after you leave this page."}
           </p>
         )}
 
-        <div data-testid="your-loadout" className="flex flex-col gap-2">
-          <h2 className="text-[20px] font-semibold leading-[1.2]">Your loadout</h2>
+        <div data-testid="your-loadout" className="paper flex flex-col gap-1 rounded-[3px] p-4 shadow-sheet">
+          <h2 className="font-display text-xl leading-none">Your loadout</h2>
           {loadout.map((id, index) => {
             // A tampered localStorage draft can hold an id no card resolves
             // to (threat model: "localStorage draft -> grid render") — this
@@ -104,20 +101,19 @@ export function Deckbuilder({
               <div
                 key={`${id}-${index}`}
                 data-card-id={id}
-                className="flex items-center gap-2 rounded border border-[#e2e8f0] bg-[#f1f5f9] px-4 py-2"
+                className="flex items-center gap-2 border-b border-dashed border-rule py-1.5 last:border-b-0"
+                style={card ? { boxShadow: `inset 3px 0 0 0 ${SECTOR_SWATCH[card.sector]}` } : undefined}
               >
                 {card ? (
                   <>
-                    <span
-                      aria-hidden="true"
-                      className="inline-block h-3 w-3 rounded-full"
-                      style={{ backgroundColor: SECTOR_SWATCH[card.sector] }}
-                    />
-                    <span className="text-sm font-semibold uppercase">{card.sector}</span>
-                    <span className="text-base">{card.name}</span>
+                    <span className="w-6 pl-2 text-right text-xs font-bold tabular-nums text-ink-muted">{index + 1}.</span>
+                    <SectorGlyph sector={card.sector} size={12} />
+                    <span className="label-caps w-12 shrink-0 text-[0.62rem]">{card.sector}</span>
+                    <span className="min-w-0 flex-1 truncate font-bold">{card.name}</span>
+                    <span className="label-caps shrink-0 text-[0.58rem] text-ink-muted">{card.icon}</span>
                   </>
                 ) : (
-                  <span className="text-sm text-[#dc2626]">Unknown card: {id}</span>
+                  <span className="text-sm text-stamp">Unknown card: {id}</span>
                 )}
               </div>
             );
@@ -126,7 +122,7 @@ export function Deckbuilder({
 
         <LegalityMeter legality={legality} />
 
-        <p className="text-sm text-[#64748b]">Changes save automatically</p>
+        <p className="label-caps text-ink-muted">Changes save automatically</p>
 
         {onSave && onClose && (
           <div className="flex flex-col gap-2">
@@ -143,7 +139,7 @@ export function Deckbuilder({
               </Button>
             </div>
             {saveStatus?.state === 'rejected' && saveStatus.message && (
-              <p className="text-sm text-[#dc2626]">
+              <p className="text-sm text-stamp">
                 {`Couldn't save your loadout — ${saveStatus.message}. Try again.`}
               </p>
             )}

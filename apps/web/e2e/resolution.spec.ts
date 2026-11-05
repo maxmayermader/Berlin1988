@@ -141,6 +141,10 @@ test.describe('Resolution — HUD and step-through', () => {
     await expect(slotsB).toHaveCount(4);
 
     const countB = pageB.getByText(/^\d+ of \d+ submitted$/);
+    // Let both bot seats commit first (they release within their padded
+    // 1.5-4s think time). Otherwise a bot's commit can land between this
+    // read and A's submission and the count rises by two, not one.
+    await expect(countB).toHaveText(/^2 of 4 submitted$/, { timeout: 15_000 });
     const beforeText = await countB.textContent();
     const before = Number(beforeText!.split(' of ')[0]);
 

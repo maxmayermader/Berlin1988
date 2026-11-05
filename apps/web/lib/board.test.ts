@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { nodeId, type MapDefinition, type MapNode } from '@berlin/shared';
-import { DUEL_12 } from '@berlin/engine';
-import { HIT_TARGET_PX, adjacentTo, edgePath, projectNode, traversalOrder } from './board.js';
+import { DUEL_12, MAPS } from '@berlin/engine';
+import {
+  HIT_TARGET_PX,
+  adjacentTo,
+  edgePath,
+  fitViewBox,
+  projectNode,
+  sectorBorders,
+  territoryCells,
+  traversalOrder,
+} from './board.js';
 
 /**
  * Board maths, proven twice: against a synthetic map (so nothing here
@@ -153,5 +162,46 @@ describe('traversalOrder', () => {
 describe('HIT_TARGET_PX', () => {
   it('is 44 and independent of any rendered radius', () => {
     expect(HIT_TARGET_PX).toBe(44);
+  });
+});
+
+describe('territory geometry (fitViewBox / territoryCells / sectorBorders)', () => {
+  const maps = Object.values(MAPS);
+
+  function inside(p: { x: number; y: number }, poly: readonly { x: number; y: number }[]): boolean {
+    let hit = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i]!;
+      const b = poly[j]!;
+      if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) hit = !hit;
+    }
+    return hit;
+  }
+
+  it.each(maps.map((m) => [m.id, m] as const))('%s: the viewBox holds every node', (_id, map) => {
+    const box = fitViewBox(map);
+    for (const node of map.nodes) {
+      expect(node.x).toBeGreaterThan(box.x);
+      expect(node.x).toBeLessThan(box.x + box.w);
+      expect(node.y).toBeGreaterThan(box.y);
+      expect(node.y).toBeLessThan(box.y + box.h);
+    }
+  });
+
+  it.each(maps.map((m) => [m.id, m] as const))('%s: every node lies inside its own territory cell', (_id, map) => {
+    const cells = territoryCells(map, fitViewBox(map));
+    expect(cells).toHaveLength(map.nodes.length);
+    for (const node of map.nodes) {
+      const cell = cells.find((c) => c.nodeId === node.id)!;
+      expect(cell.points.length).toBeGreaterThanOrEqual(3);
+      expect(inside({ x: node.x, y: node.y }, cell.points)).toBe(true);
+    }
+  });
+
+  it.each(maps.map((m) => [m.id, m] as const))('%s: draws a Wall around East Berlin and district lines elsewhere', (_id, map) => {
+    const cells = territoryCells(map, fitViewBox(map));
+    const { wall, district } = sectorBorders(map, cells);
+    expect(wall.length).toBeGreaterThan(0);
+    expect(wall.length + district.length).toBeGreaterThan(0);
   });
 });

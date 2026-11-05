@@ -137,12 +137,12 @@ describe('the result surface never computes, ranks, or re-derives victory', () =
 });
 
 describe('ResultScreen — ELIMINATION and only ELIMINATION styles with the destructive colour', () => {
-  it('references #DC2626 gated on the ELIMINATION reason', () => {
+  it('applies the stamp-red destructive token gated on the ELIMINATION reason', () => {
     const src = readFileSync(
       fileURLToPath(new URL('../components/result/ResultScreen.tsx', import.meta.url)),
       'utf8',
     );
-    expect(/#dc2626/i.test(src)).toBe(true);
-    expect(/ELIMINATION/.test(src)).toBe(true);
+    expect(/isElimination\s*=\s*outcome\.reason\s*===\s*'ELIMINATION'/.test(src)).toBe(true);
+    expect(/isElimination \? 'text-stamp'/.test(src)).toBe(true);
   });
 });

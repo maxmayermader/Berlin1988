@@ -32,7 +32,7 @@ Every rule here serves one of these four. If a rule doesn't, cut it.
 
 Autumn 1988. The Wall has fourteen months to live and nobody in the game knows it. Four networks work the same city — Stasi counter-intelligence in the East, CIA station chiefs in the West, a diplomatic corridor answering to neither, and the U-Bahn runners who move under both.
 
-**Aesthetic:** monochrome-green phosphor CRT over a dark ink map. Monospaced, slightly misaligned type, like a teletype. Analogue sound — tape hiss, dial tones, the click of a rotary phone. See `docs/ARCHITECTURE.md` §9 for how this coexists with accessibility.
+**Aesthetic:** a declassified dossier on a dark desk. Manila folders and grained typing paper, typewriter type (Special Elite for headings and rubber stamps, Courier Prime for everything read at speed), red ink stamps — TOP SECRET, BURNED, LOCKED IN — and a hand-hatched city plan with the Wall drawn as concrete slabs around East Berlin. Analogue sound (tape hiss, dial tones, the click of a rotary phone) is still the intent but not yet built. See `docs/ARCHITECTURE.md` §9 for how this coexists with accessibility.
 
 ---
 

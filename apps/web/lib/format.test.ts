@@ -35,12 +35,14 @@ describe('truncateCodename', () => {
 });
 
 describe('RoundClock — urgency accent is a static colour change, not an animation', () => {
-  it('applies the #2563EB accent under ten seconds, with no motion import', () => {
+  it('turns stamp red under ten seconds, with no motion import', () => {
     const src = readFileSync(
       fileURLToPath(new URL('../components/hud/RoundClock.tsx', import.meta.url)),
       'utf8',
     );
-    expect(/#2563eb/i.test(src)).toBe(true);
+    // v1.1 dossier theme: urgency is the theme's stamp-red token, gated on
+    // the same isUrgent() threshold.
+    expect(/urgent \?[^:]*text-stamp/.test(src)).toBe(true);
     expect(/isUrgent\(/.test(src)).toBe(true);
     expect(/from ['"]motion/.test(src)).toBe(false); // D-10: no animation beyond D-06
   });

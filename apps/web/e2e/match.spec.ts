@@ -40,8 +40,11 @@ test.describe('Match — board, order composition, and submission', () => {
       'Prenzlauer Berg',
       'Karl-Marx-Allee',
     ];
+    // Scoped to the board: v1.1's composer, kit panel and node inspector
+    // also name the agent's node, so an unscoped text match is ambiguous.
+    const boardForNames = page.locator('svg[aria-label="Berlin map"]');
     for (const name of nodeNames) {
-      await expect(page.getByText(name, { exact: true })).toBeVisible();
+      await expect(boardForNames.getByText(name, { exact: true })).toBeVisible();
     }
 
     // Compose: pick Move, then click an adjacent legal node (slot 1), then
@@ -54,12 +57,20 @@ test.describe('Match — board, order composition, and submission', () => {
     await expect(submit).toBeEnabled();
     await submit.click();
 
-    await expect(page.getByText('Order locked in.')).toBeVisible({ timeout: 15_000 });
+    // With a single bot opponent the round can close the instant the host
+    // submits (helpers.ts createDuelLobby documents this), in which case the
+    // composer — and its locked-in line — is replaced by the round report.
+    // Either one proves the room accepted the order.
+    await expect(
+      page
+        .getByText('Order locked in.')
+        .or(page.getByRole('heading', { name: /^Round \d+ resolved$/ })),
+    ).toBeVisible({ timeout: 15_000 });
 
     // Fog: exactly one agent token renders on the board — the viewer's own.
-    // AgentToken is the only element using this exact accent fill, and
+    // AgentToken is the only element carrying data-agent-token, and
     // OpponentPublicInfo has no field that could ever supply a second one.
-    await expect(page.locator('circle[fill="#2563eb"]')).toHaveCount(1);
+    await expect(page.locator('[data-agent-token]')).toHaveCount(1);
 
     // Second, independent scan: the whole served document, checked for any
     // agent id at all (this phase's createMatch mints every agent id as
@@ -75,7 +86,9 @@ test.describe('Match — board, order composition, and submission', () => {
 
     await createDuelLobby(page);
     await readyAndStart(page);
-    await expect(page.getByText('Karl-Marx-Allee', { exact: true })).toBeVisible();
+    await expect(
+      page.locator('svg[aria-label="Berlin map"]').getByText('Karl-Marx-Allee', { exact: true }),
+    ).toBeVisible();
 
     // Choosing the operation first is what makes the board click (or Enter)
     // unambiguous — the same two-step the mouse path takes (ORDER-07).

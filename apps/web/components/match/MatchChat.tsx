@@ -48,15 +48,15 @@ export function MatchChat({
 
   if (!expanded) {
     return (
-      <div className="fixed bottom-4 right-4">
+      <div className="fixed bottom-4 right-4 z-30">
         <button
           type="button"
           onClick={handleExpand}
-          className={`flex min-h-11 min-w-11 items-center justify-center gap-2 rounded border border-[#e2e8f0] bg-[#ffffff] px-4 py-2 text-base font-semibold hover:bg-[#f1f5f9] ${HOVER_TRANSITION_CLASS}`}
+          className={`manila flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-[3px] px-4 py-2 font-display text-base shadow-sheet hover:bg-manila-2 ${HOVER_TRANSITION_CLASS}`}
         >
           {COLLAPSED_LABEL}
           {unread > 0 && (
-            <span className="rounded-full bg-[#2563eb] px-2 text-sm text-white">{unread}</span>
+            <span className="rounded-full bg-stamp px-2 font-type text-sm font-bold text-paper">{unread}</span>
           )}
         </button>
       </div>
@@ -66,21 +66,21 @@ export function MatchChat({
   return (
     <motion.div
       {...fadeSlideUpVariant(reducedMotion)}
-      className="fixed bottom-4 right-4 flex h-96 w-80 flex-col gap-4 rounded border border-[#e2e8f0] bg-[#ffffff] p-6 shadow"
+      className="manila fixed bottom-4 right-4 z-30 flex h-[28rem] max-h-[80dvh] w-[22rem] max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-[4px] p-5 shadow-sheet"
     >
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-[20px] font-semibold leading-[1.2]">{EXPANDED_TITLE}</h2>
+        <h2 className="font-display text-xl leading-none">{EXPANDED_TITLE}</h2>
         <button
           type="button"
           onClick={() => setExpanded(false)}
           aria-label="Collapse"
-          className="min-h-11 min-w-11 text-sm text-[#64748b]"
+          className="min-h-11 min-w-11 text-sm text-ink-muted"
         >
           ×
         </button>
       </div>
       <ChatBody messages={messages} />
-      {error && <p className="text-sm text-[#dc2626]">{error}</p>}
+      {error && <p className="text-sm text-stamp">{error}</p>}
       <ChatComposer onSend={onSend} onSendPrompt={onSendPrompt} pending={pending} />
     </motion.div>
   );

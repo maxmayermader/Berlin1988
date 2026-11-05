@@ -12,34 +12,37 @@ export interface ActionSlotProps {
   map: MapDefinition;
   /** Intel this action will cost, shown once composed (ORDER-03). */
   intelCost: number | null;
+  /** False once the order is locked — a locked slot can't be cleared. */
+  editable?: boolean;
   onClear: () => void;
 }
 
 /**
- * One of an agent's two action slots — a readout of what is composed, plus
- * a way to clear it. Choosing an action happens in ActionPicker; this shows
- * the result. Node names rather than ids come from lib/format.ts, the single
- * source of human-readable text.
+ * One of an agent's two action slots — a typed line on the order form,
+ * plus a way to clear it. Choosing an action happens in ActionPicker; this
+ * shows the result. Node names rather than ids come from lib/format.ts, the
+ * single source of human-readable text.
  */
-export function ActionSlot({ index, action, isActive, map, intelCost, onClear }: ActionSlotProps) {
+export function ActionSlot({ index, action, isActive, map, intelCost, editable = true, onClear }: ActionSlotProps) {
   return (
     <div
-      className={`flex items-center justify-between gap-2 rounded border px-3 py-2 text-sm ${
-        isActive ? 'border-[#2563eb]' : 'border-[#e2e8f0]'
+      className={`flex min-h-11 items-center gap-2 border-b-2 px-1 py-1.5 text-sm ${
+        isActive ? 'border-accent bg-accent/5' : action ? 'border-ink/60' : 'border-dashed border-rule'
       }`}
     >
-      <span className="font-semibold">Slot {index + 1}</span>
-      <span className="flex-1 truncate">
+      <span className="label-caps w-14 shrink-0 text-ink-muted">Slot {index + 1}</span>
+      <span className={`flex-1 truncate ${action ? 'font-bold' : 'italic text-ink-muted'}`}>
         {action ? actionText(map, action) : isActive ? 'Choose an action below' : 'Empty'}
       </span>
       {action && intelCost !== null && intelCost > 0 && (
-        <span className="shrink-0 text-xs text-[#475569]">{intelCost} Intel</span>
+        <span className="shrink-0 text-xs font-bold tabular-nums text-warn">−{intelCost} Intel</span>
       )}
-      {action && (
+      {action && editable && (
         <button
           type="button"
           onClick={onClear}
-          className="shrink-0 rounded border border-[#e2e8f0] px-2 py-1 text-xs"
+          aria-label={`Clear slot ${index + 1}`}
+          className="label-caps min-h-8 shrink-0 rounded-[2px] border border-ink/30 px-2 text-[0.6rem] hover:bg-ink/10"
         >
           Clear
         </button>

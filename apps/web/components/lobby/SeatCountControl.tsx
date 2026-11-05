@@ -23,7 +23,7 @@ export function SeatCountControl({ current, minAllowed, isHost, error, onSelect 
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-base">Seats</span>
+      <span className="label-caps text-ink-muted">Seats</span>
       <div className="flex gap-2">
         {SEAT_OPTIONS.map((count) => {
           const selected = count === current;
@@ -39,12 +39,12 @@ export function SeatCountControl({ current, minAllowed, isHost, error, onSelect 
                   ? `Can't go below ${minAllowed} — ${minAllowed} seats are filled`
                   : undefined
               }
-              className={`h-11 min-w-11 rounded border px-3 text-sm font-semibold ${
+              className={`h-11 min-w-11 rounded-[2px] border-2 px-3 text-sm font-bold transition-colors ${
                 disabled
-                  ? 'cursor-not-allowed border-[#e2e8f0] text-[#64748b]'
+                  ? 'cursor-not-allowed border-rule bg-paper-2 text-ink-muted'
                   : selected
-                    ? 'border-[#2563eb] text-[#2563eb]'
-                    : 'border-[#e2e8f0] text-[#0f172a]'
+                    ? 'border-ink bg-ink text-paper'
+                    : 'border-rule-strong/60 bg-paper text-ink hover:border-ink'
               }`}
             >
               {count}
@@ -52,7 +52,7 @@ export function SeatCountControl({ current, minAllowed, isHost, error, onSelect 
           );
         })}
       </div>
-      {error !== null && <p className="text-sm text-[#64748b]">{error}</p>}
+      {error !== null && <p className="text-sm text-ink-muted">{error}</p>}
     </div>
   );
 }

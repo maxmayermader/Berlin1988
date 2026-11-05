@@ -150,6 +150,10 @@ export default class MatchRoom implements Party.Server {
       // here and has no serialisable accessor to read in the first place.
       if (result.state?.phase === 'IN_GAME' && result.state.gameState) {
         sendViews(this.room, result.state, result.state.gameState);
+        // The VIEW carries no deadline (the engine never knows the time), so
+        // a (re)joining connection would otherwise show no clock until the
+        // next round. CLOCK is room-wide and secret-free.
+        sendClock(this.room, result.state);
       }
       await this.pushDirectory(result.state);
       return;

@@ -35,7 +35,7 @@ export function SubmittedCount({ view }: SubmittedCountProps) {
   }).length;
 
   return (
-    <p className="text-sm font-medium text-[#0f172a]">
+    <p className="label-caps whitespace-nowrap text-on-desk-muted">
       {n} of {total} submitted
     </p>
   );

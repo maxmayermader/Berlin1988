@@ -46,20 +46,20 @@ export function MatchSettingsPanel({
   if (!isHost) {
     return (
       <section className="flex flex-col gap-2" aria-label="Match settings">
-        <h3 className="text-base font-semibold">Match Settings</h3>
-        <ul className="flex flex-col gap-1 text-sm text-[#475569]">
+        <h3 className="font-display text-lg leading-none">Match Settings</h3>
+        <ul className="flex flex-col gap-1 text-sm text-ink-muted">
           {settingsSummary(settings, seatCount).map((line) => (
             <li key={line}>{line}</li>
           ))}
         </ul>
-        <p className="text-xs text-[#64748b]">Only the host can change these.</p>
+        <p className="text-xs text-ink-muted">Only the host can change these.</p>
       </section>
     );
   }
 
   return (
     <section className="flex flex-col gap-4" aria-label="Match settings">
-      <h3 className="text-base font-semibold">Match Settings</h3>
+      <h3 className="font-display text-lg leading-none">Match Settings</h3>
 
       <Segmented
         label="Agents each"
@@ -103,15 +103,15 @@ export function MatchSettingsPanel({
 
       {/* Not a control: MAP-03 makes the map a function of the seat count. */}
       <div className="flex flex-col gap-1">
-        <span className="text-sm text-[#475569]">Map</span>
+        <span className="label-caps text-ink-muted">Map</span>
         <span className="text-sm font-semibold">{mapLabel(seatCount)}</span>
-        <span className="text-xs text-[#64748b]">Chosen automatically from the seat count.</span>
+        <span className="text-xs text-ink-muted">Chosen automatically from the seat count.</span>
       </div>
 
-      <p className="text-xs text-[#64748b]">
+      <p className="text-xs text-ink-muted">
         Changing a setting clears everyone&apos;s ready state.
       </p>
-      {error !== null && <p className="text-sm text-[#dc2626]">{error}</p>}
+      {error !== null && <p className="text-sm text-stamp">{error}</p>}
     </section>
   );
 }
@@ -132,7 +132,7 @@ function Segmented<T extends string | number>({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-sm text-[#475569]">{label}</span>
+      <span className="label-caps text-ink-muted">{label}</span>
       <div className="flex flex-wrap gap-2">
         {options.map((option) => {
           const selected = option.value === current;
@@ -142,12 +142,12 @@ function Segmented<T extends string | number>({
               type="button"
               aria-pressed={selected}
               onClick={() => onSelect(option.value)}
-              className={`h-11 min-w-11 rounded border px-3 text-sm font-semibold ${
+              className={`h-11 min-w-11 rounded-[2px] border-2 px-3 text-sm font-bold transition-colors ${
                 selected
-                  ? 'border-[#2563eb] text-[#2563eb]'
+                  ? 'border-ink bg-ink text-paper'
                   : invalid
-                    ? 'border-[#dc2626] text-[#0f172a]'
-                    : 'border-[#e2e8f0] text-[#0f172a]'
+                    ? 'border-stamp bg-paper text-ink'
+                    : 'border-rule-strong/60 bg-paper text-ink hover:border-ink'
               }`}
             >
               {option.label}
@@ -181,15 +181,15 @@ function Dropdown<T extends string | number | null>({
   const selectedIndex = options.findIndex((option) => option.value === current);
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-sm text-[#475569]">{label}</span>
+      <span className="label-caps text-ink-muted">{label}</span>
       <select
         value={selectedIndex === -1 ? 0 : selectedIndex}
         onChange={(event) => {
           const option = options[Number(event.target.value)];
           if (option) onSelect(option.value);
         }}
-        className={`h-11 rounded border px-3 text-sm ${
-          invalid ? 'border-[#dc2626]' : 'border-[#e2e8f0]'
+        className={`h-11 rounded-[2px] border-2 bg-paper px-3 text-sm font-bold ${
+          invalid ? 'border-stamp' : 'border-rule-strong/60'
         }`}
       >
         {options.map((option, index) => (

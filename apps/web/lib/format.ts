@@ -1,4 +1,5 @@
 import type { Action, MapDefinition, NodeId, ResolutionEvent } from '@berlin/shared';
+import { tryGetCard } from '@berlin/engine';
 import { CODENAME_MAX_LENGTH } from './identity.js';
 
 /**
@@ -139,6 +140,82 @@ export function roundHeadline(log: readonly ResolutionEvent[]): string {
 }
 
 /**
+ * Who and where, for event prose. Every field is optional: with no context
+ * the prose falls back to anonymous wording and raw node ids, which is what
+ * the unit tests exercise and what a malformed frame degrades to.
+ *
+ * Names come only from the viewer's own PlayerView (`self.name`,
+ * `opponents[].name`) and agent labels only from the viewer's own agent
+ * list, so the context can make prose more readable but never more
+ * informative than the fog-filtered event already is — an event whose
+ * `agentId` or `byPlayerId` was nulled by `filterEvents()` still reads as
+ * an unnamed agent or an unknown killer.
+ */
+export interface EventContext {
+  readonly map?: MapDefinition;
+  /** playerId → display name. */
+  readonly names?: Readonly<Record<string, string>>;
+  /** The viewer's own player id, so their events read in the second person. */
+  readonly selfId?: string;
+  /** The viewer's own agent ids → "Agent 1" / "Agent 2". */
+  readonly agentLabels?: Readonly<Record<string, string>>;
+}
+
+/** Builds the context once per render from fields the viewer already holds. */
+export function eventContextFor(view: {
+  readonly map: MapDefinition;
+  readonly self: { readonly id: string; readonly name: string; readonly agents: readonly { readonly id: string }[] };
+  readonly opponents: readonly { readonly id: string; readonly name: string }[];
+}): EventContext {
+  const names: Record<string, string> = { [view.self.id]: view.self.name };
+  for (const o of view.opponents) names[o.id] = o.name;
+  const agentLabels: Record<string, string> = {};
+  view.self.agents.forEach((a, i) => {
+    agentLabels[a.id] = view.self.agents.length > 1 ? `Agent ${i + 1}` : 'Your agent';
+  });
+  return { map: view.map, names, selfId: view.self.id, agentLabels };
+}
+
+function placeOf(ctx: EventContext, id: NodeId): string {
+  return ctx.map ? nodeName(ctx.map, id) : (id as string);
+}
+
+/** "You", a codename, or "A rival" when the player is unknown. */
+function whoOf(ctx: EventContext, playerId: string | null): string {
+  if (playerId === null) return 'Someone';
+  if (ctx.selfId !== undefined && playerId === ctx.selfId) return 'You';
+  return ctx.names?.[playerId] ?? 'A rival';
+}
+
+/** "Your", "Marek's", or "A rival's". */
+function whoseOf(ctx: EventContext, playerId: string): string {
+  if (ctx.selfId !== undefined && playerId === ctx.selfId) return 'Your';
+  const name = ctx.names?.[playerId];
+  return name ? `${name}'s` : "A rival's";
+}
+
+/** "Agent 2" for one of the viewer's own agents when the id survived fog,
+ *  otherwise "<whose> agent". */
+function agentOf(ctx: EventContext, playerId: string, agentId: string | null): string {
+  if (agentId !== null) {
+    const label = ctx.agentLabels?.[agentId];
+    if (label) return label;
+  }
+  return `${whoseOf(ctx, playerId)} agent`;
+}
+
+function cardNameOf(cardId: string): string {
+  return tryGetCard(cardId as never)?.name ?? 'a card';
+}
+
+const BURN_CAUSE_TEXT: Record<string, string> = {
+  STRIKE: 'by a strike',
+  AMBUSH: 'in an ambush',
+  BLOCKADE: 'in a blockade',
+  CONTEST: 'losing a contested node',
+};
+
+/**
  * The single source of prose for a resolution event — the same string feeds
  * the visible row and its accessible announcement, so the two cannot drift
  * (apps/web/lib/CLAUDE.md rule 5). A case per `ResolutionEvent` member, no
@@ -149,91 +226,125 @@ export function roundHeadline(log: readonly ResolutionEvent[]): string {
  * nulled by fog (`packages/shared/src/orders.ts`) renders as prose about an
  * unnamed agent, never as an empty slot or a crash — T-1-26.
  */
-export function eventText(event: ResolutionEvent): string {
+export function eventText(event: ResolutionEvent, ctx: EventContext = {}): string {
+  const at = (id: NodeId) => placeOf(ctx, id);
   switch (event.type) {
     case 'ROUND_START':
       return `Round ${event.round} begins.`;
     case 'SAFEHOUSE_PLACED':
-      return `A safehouse was placed at ${event.nodeId}.`;
+      return `${whoOf(ctx, event.playerId)} established a safehouse at ${at(event.nodeId)}.`;
     case 'AMBUSH_SET':
-      return `An ambush was set at ${event.nodeId}.`;
+      return `${whoOf(ctx, event.playerId)} set an ambush at ${at(event.nodeId)}.`;
     case 'DECOY_PLACED':
-      return `A decoy was placed at ${event.nodeId}.`;
+      return `${whoOf(ctx, event.playerId)} planted a decoy at ${at(event.nodeId)}.`;
     case 'AGENT_MOVED': {
       const via = event.viaTunnel
         ? ' through a tunnel'
         : event.viaCheckpoint
           ? ' through a checkpoint'
           : '';
-      const sprint = event.sprint ? ', sprinting' : '';
-      return `An agent moved from ${event.from} to ${event.to}${via}${sprint}.`;
+      const verb = event.sprint ? 'sprinted' : 'moved';
+      return `${agentOf(ctx, event.playerId, event.agentId)} ${verb} from ${at(event.from)} to ${at(event.to)}${via}.`;
     }
     case 'CHECKPOINT_CROSSED':
       return event.silent
-        ? `An agent crossed the checkpoint at ${event.nodeId} without being noticed.`
-        : `An agent crossed the checkpoint at ${event.nodeId}.`;
+        ? `${whoOf(ctx, event.playerId)} crossed the checkpoint at ${at(event.nodeId)} without being noticed.`
+        : `${whoOf(ctx, event.playerId)} crossed the checkpoint at ${at(event.nodeId)}. The crossing was reported.`;
     case 'AMBUSH_TRIGGERED': {
-      const who = event.victimAgentId ? 'An agent' : 'Someone';
-      if (event.escaped) {
-        const to = event.escapedTo ? ` to ${event.escapedTo}` : '';
-        return `${who} triggered a trap at ${event.nodeId} and escaped${to}.`;
+      const victimIsSelf = ctx.selfId !== undefined && event.victimId === ctx.selfId;
+      const ownerIsSelf = ctx.selfId !== undefined && event.ownerId === ctx.selfId;
+      const outcome = event.escaped
+        ? ` and escaped${event.escapedTo ? ` to ${at(event.escapedTo)}` : ''}`
+        : event.sealed
+          ? ' and was sealed in'
+          : '';
+      if (victimIsSelf) {
+        return `${agentOf(ctx, event.victimId, event.victimAgentId)} walked into a trap at ${at(event.nodeId)}${outcome}.`;
       }
-      const sealed = event.sealed ? ' and was sealed in' : '';
-      return `${who} triggered a trap at ${event.nodeId}${sealed}.`;
+      if (ownerIsSelf) {
+        return `${whoOf(ctx, event.victimId)} walked into your trap at ${at(event.nodeId)}${outcome}.`;
+      }
+      const who = event.victimAgentId ? 'An agent' : 'Someone';
+      return `${who} triggered a trap at ${at(event.nodeId)}${outcome}.`;
     }
     case 'BLOCKADE_ANNOUNCED':
-      return `A blockade at ${event.nodeId} was announced for round ${event.round}.`;
+      return `Blockade announced: ${at(event.nodeId)} closes in round ${event.round}.`;
     case 'BLOCKADE_CLOSED':
-      return `${event.nodeId} was sealed by a blockade until round ${event.until}.`;
+      return `${at(event.nodeId)} was sealed by a blockade until round ${event.until}.`;
     case 'BLOCKADE_LIFTED':
-      return `The blockade at ${event.nodeId} was lifted.`;
+      return `The blockade at ${at(event.nodeId)} was lifted.`;
     case 'BLOCKADE_CAUGHT': {
+      const agent = agentOf(ctx, event.playerId, event.agentId);
       if (!event.survived) {
-        return `An agent was caught and burned in the blockade at ${event.nodeId}.`;
+        return `${agent} was caught and burned in the blockade at ${at(event.nodeId)}.`;
       }
-      const to = event.relocatedTo ? `, relocated to ${event.relocatedTo}` : '';
-      return `An agent was caught in the blockade at ${event.nodeId}${to}.`;
+      const to = event.relocatedTo ? `, slipping out to ${at(event.relocatedTo)}` : '';
+      return `${agent} was caught in the blockade at ${at(event.nodeId)}${to}.`;
     }
     case 'INFORMANT_CLAIMED':
-      return `An informant was claimed at ${event.nodeId}.`;
+      return `${whoOf(ctx, event.playerId)} bought the informant at ${at(event.nodeId)}.`;
     case 'WIRETAP_RESULT': {
       const n = event.results.length;
-      return `A wiretap on ${event.target} reported ${n} node${n === 1 ? '' : 's'}.`;
+      const occupied = event.results.filter((r) => r.occupied).map((r) => at(r.nodeId));
+      const finding =
+        occupied.length === 0 ? 'all clear' : `occupied: ${occupied.join(', ')}`;
+      return `Wiretap on ${at(event.target)} checked ${n} node${n === 1 ? '' : 's'} — ${finding}.`;
     }
     case 'STRIKE_FIRED': {
-      const who = event.agentId ? 'An agent' : 'Someone';
+      const who =
+        event.agentId !== null
+          ? agentOf(ctx, event.playerId, event.agentId)
+          : ctx.names
+            ? whoOf(ctx, event.playerId)
+            : 'Someone';
       const silenced = event.silenced ? ', silenced' : '';
-      return `${who} struck ${event.target} from ${event.from}${silenced}.`;
+      return `${who} struck ${at(event.target)} from ${at(event.from)}${silenced}.`;
     }
     case 'CONTEST': {
       const method = CONTEST_METHOD_TEXT[event.method] ?? event.method;
       return event.winner
-        ? `${event.nodeId} was contested and decided by ${method}.`
-        : `${event.nodeId} was contested by ${method}, with no winner.`;
+        ? `${at(event.nodeId)} was contested — ${whoOf(ctx, event.winner)} held it on ${method}.`
+        : `${at(event.nodeId)} was contested, decided by ${method}, with no winner.`;
     }
     case 'AGENT_BURNED': {
       const dropped =
         event.dossiersDropped > 0
           ? `, dropping ${event.dossiersDropped} dossier${event.dossiersDropped === 1 ? '' : 's'}`
           : '';
-      return `An agent was burned at ${event.nodeId}${dropped}.`;
+      const cause = BURN_CAUSE_TEXT[event.cause] ?? '';
+      const by =
+        event.byPlayerId !== null && event.cause !== 'BLOCKADE'
+          ? ` — ${whoOf(ctx, event.byPlayerId) === 'You' ? 'your work' : `the work of ${whoOf(ctx, event.byPlayerId)}`}`
+          : '';
+      const agent = ctx.names || ctx.selfId ? agentOf(ctx, event.playerId, event.agentId) : 'An agent';
+      return `${agent} was burned at ${at(event.nodeId)}${cause ? ` ${cause}` : ''}${dropped}${by}.`;
     }
     case 'DOSSIER_TAKEN':
-      return `A dossier was taken at ${event.nodeId}.`;
+      return ctx.names
+        ? `${agentOf(ctx, event.playerId, event.agentId)} took a dossier at ${at(event.nodeId)}.`
+        : `A dossier was taken at ${at(event.nodeId)}.`;
     case 'DOSSIER_SPAWNED':
-      return `A dossier appeared at ${event.nodeId}.`;
+      return `A dossier surfaced at ${at(event.nodeId)}.`;
     case 'EXTRACTION':
-      return `An agent extracted at ${event.nodeId}.`;
+      return ctx.names
+        ? `${agentOf(ctx, event.playerId, event.agentId)} extracted dossiers at ${at(event.nodeId)}.`
+        : `An agent extracted at ${at(event.nodeId)}.`;
     case 'PASSIVE_FIRED':
-      return `A passive card fired${event.consumed ? ' and was consumed' : ''}.`;
+      return ctx.names
+        ? `${whoseOf(ctx, event.playerId)} ${cardNameOf(event.cardId)} fired${event.consumed ? ' and was spent' : ''}.`
+        : `A passive card fired${event.consumed ? ' and was consumed' : ''}.`;
     case 'CARD_PLAYED':
-      return 'A card was played.';
+      return ctx.names
+        ? `${whoOf(ctx, event.playerId)} played ${cardNameOf(event.cardId)}.`
+        : 'A card was played.';
     case 'SILENCER_BOUGHT':
-      return `${event.count} silencer${event.count === 1 ? '' : 's'} were bought.`;
+      return `${whoOf(ctx, event.playerId) === 'You' ? 'You' : 'Someone'} bought ${event.count} silencer${event.count === 1 ? '' : 's'}.`;
     case 'INTEL_GAINED':
-      return `${event.amount} Intel was gained.`;
+      return `${whoOf(ctx, event.playerId) === 'You' ? 'You' : 'Someone'} gained ${event.amount} Intel.`;
     case 'PLAYER_ELIMINATED':
-      return 'A player was eliminated.';
+      return ctx.names
+        ? `${whoOf(ctx, event.playerId)} ${whoOf(ctx, event.playerId) === 'You' ? 'are' : 'is'} eliminated.`
+        : 'A player was eliminated.';
     case 'MATCH_ENDED':
       return `The match ended — ${event.reason.toLowerCase().replace(/_/g, ' ')}.`;
   }

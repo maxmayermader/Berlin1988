@@ -200,7 +200,7 @@ test.describe('Deckbuilder — full card grid, live add/remove, and a persistent
     await target.getByRole('button', { name: 'Add' }).click();
 
     await expect(page.getByText(/At most 3 DECOY cards allowed/)).toBeVisible();
-    await expect(target).toHaveClass(/border-l-\[#dc2626\]/);
+    await expect(target).toHaveClass(/(^|\s)border-stamp(\s|$)/);
   });
 
   test('an over-budget draft flags the budget bar but highlights no tile', async ({ page }) => {
@@ -218,7 +218,7 @@ test.describe('Deckbuilder — full card grid, live add/remove, and a persistent
     const tiles = page.locator('[data-card-id]').filter({ has: page.getByRole('button') });
     const tileCount = await tiles.count();
     for (let i = 0; i < tileCount; i++) {
-      await expect(tiles.nth(i)).not.toHaveClass(/border-l-\[#dc2626\]/);
+      await expect(tiles.nth(i)).not.toHaveClass(/(^|\s)border-stamp(\s|$)/);
     }
   });
 

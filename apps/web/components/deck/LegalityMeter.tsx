@@ -29,19 +29,19 @@ export function LegalityMeter({ legality }: LegalityMeterProps) {
   const overBudget = budgetPoints > BUDGET_LIMIT;
 
   return (
-    <div className="flex max-h-[80vh] flex-col gap-4 overflow-y-auto rounded border border-[#e2e8f0] bg-[#f1f5f9] p-6">
-      <p className="text-[20px] font-semibold leading-[1.2]">
+    <div className="paper flex max-h-[80vh] flex-col gap-3 overflow-y-auto rounded-[3px] p-4 shadow-sheet">
+      <p className="font-display text-xl leading-none">
         {cardCount}/{LOADOUT_SIZE} cards
       </p>
 
       <div className="flex flex-col gap-1">
-        <div className="h-2 w-full overflow-hidden rounded bg-[#e2e8f0]">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-rule/60">
           <div
-            className={`h-full ${overBudget ? 'bg-[#dc2626]' : 'bg-[#2563eb]'}`}
+            className={`h-full ${overBudget ? 'bg-stamp' : 'bg-ink'}`}
             style={{ width: `${Math.min(100, (budgetPoints / BUDGET_LIMIT) * 100)}%` }}
           />
         </div>
-        <p className={`text-sm font-semibold ${overBudget ? 'text-[#dc2626]' : ''}`}>
+        <p className={`text-sm font-semibold ${overBudget ? 'text-stamp' : ''}`}>
           {budgetPoints}/{BUDGET_LIMIT} BP
         </p>
       </div>
@@ -53,8 +53,8 @@ export function LegalityMeter({ legality }: LegalityMeterProps) {
           return (
             <span
               key={icon}
-              className={`rounded px-2 py-1 text-sm font-semibold uppercase ${
-                overLimit ? 'bg-[#dc2626] text-white' : 'bg-white text-[#0f172a]'
+              className={`rounded-[2px] px-2 py-0.5 text-xs font-bold uppercase ${
+                overLimit ? 'bg-stamp text-paper' : 'border border-rule bg-paper-2 text-ink'
               }`}
             >
               {icon} {count}/{PER_ICON_LIMIT}
@@ -69,7 +69,7 @@ export function LegalityMeter({ legality }: LegalityMeterProps) {
           return (
             <div
               key={sector}
-              className={`flex items-center gap-2 text-sm font-semibold ${present ? '' : 'text-[#dc2626]'}`}
+              className={`flex items-center gap-2 text-sm font-semibold ${present ? '' : 'text-stamp'}`}
             >
               <span aria-hidden="true">{present ? '✓' : '✗'}</span>
               <span className="uppercase">{sector}</span>
@@ -80,7 +80,7 @@ export function LegalityMeter({ legality }: LegalityMeterProps) {
 
       {isLegal ? (
         <div className="flex flex-col gap-1">
-          <p className="text-base font-semibold text-[#2563eb]">Loadout legal</p>
+          <p className="font-display text-lg text-ok">Loadout legal</p>
           <p className="text-sm">10 cards, ≤3 per icon, 2+ colors, ≤26 BP. Ready to save.</p>
         </div>
       ) : (
@@ -88,7 +88,7 @@ export function LegalityMeter({ legality }: LegalityMeterProps) {
           {violations.map((violation) => (
             <li
               key={violation.code}
-              className="rounded border-l-4 border-l-[#dc2626] bg-white px-3 py-2 text-sm text-[#0f172a]"
+              className="rounded border-l-4 border-l-stamp bg-stamp-wash px-3 py-2 text-sm text-ink"
             >
               {violation.message}
             </li>
